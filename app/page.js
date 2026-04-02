@@ -154,7 +154,7 @@ export default function Home() {
     <div className="p-4 md:p-8 max-w-6xl mx-auto bg-zinc-950 min-h-screen text-zinc-200 font-sans selection:bg-red-900 selection:text-white">
       <div className="sticky top-0 z-40 bg-zinc-950 border-b-2 border-zinc-800 pb-4 pt-4 mb-8 flex flex-col md:flex-row justify-between items-center gap-4">
         <h1 className="text-3xl font-black tracking-wider text-zinc-100 flex-shrink-0">
-          SECRET <span className="text-red-600">AGIT</span>
+        Deck&<span className="text-red-600">Dice</span>
         </h1>
         <div className="flex flex-wrap gap-2 items-center justify-center">
           <Link href="/leaderboard" className="px-4 py-2 bg-zinc-800 border-2 border-zinc-700 text-amber-500 hover:bg-zinc-700 hover:border-amber-500 rounded-lg text-sm font-bold shadow-sm transition">🏆 명예의 전당</Link>
