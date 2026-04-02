@@ -48,7 +48,7 @@ export default function LoginPage() {
     <div className="min-h-screen bg-zinc-950 flex flex-col justify-center items-center p-4 font-sans selection:bg-red-900">
       <div className="mb-8 text-center">
         <h1 className="text-4xl font-black tracking-wider text-zinc-100 drop-shadow-md">
-        <span className="text-red-600">Deck&Dice Mystery Club</span>
+        <span className="text-red-600">D&D Mystery Club</span>
         </h1>
         <p className="text-zinc-500 mt-2 font-bold">
           {mode === 'login' ? '어둠 속으로 입장하세요' : mode === 'signup' ? '새로운 요원으로 합류하세요' : '잃어버린 열쇠를 찾습니다'}
