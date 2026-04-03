@@ -275,7 +275,16 @@ export default function Home() {
             <h2 className="text-2xl font-black mb-6 text-zinc-100 border-b-2 border-zinc-800 pb-4">비밀 모임 소집</h2>
             <div className="mb-6">
               <label className="block text-sm font-bold text-zinc-300 mb-2">거사일 선택 (복수 가능)</label>
-              <DatePicker multiple value={selectedDates} onChange={(dates) => setSelectedDates(dates.map(d => d.format("YYYY-MM-DD")))} format="YYYY-MM-DD" inputClass="w-full bg-zinc-800 border-2 border-zinc-600 p-3 rounded-xl focus:border-red-600 text-zinc-100 outline-none transition placeholder-zinc-500" containerClassName="w-full" placeholder="날짜를 클릭하세요" />
+              <DatePicker 
+  multiple 
+  value={selectedDates} 
+  onChange={(dates) => setSelectedDates(dates.map(d => d.format("YYYY-MM-DD")))} 
+  format="YYYY-MM-DD" 
+  minDate={new Date()}  /* ✨ 이 한 줄이 추가되면 과거 날짜는 회색으로 변하고 클릭이 막힙니다! */
+  inputClass="w-full bg-zinc-800 border-2 border-zinc-600 p-3 rounded-xl focus:border-red-600 text-zinc-100 outline-none transition placeholder-zinc-500" 
+  containerClassName="w-full" 
+  placeholder="날짜를 클릭하세요" 
+/>
             </div>
             <div className="mb-8">
               <label className="block text-sm font-bold text-zinc-300 mb-2">당신의 역할</label>
