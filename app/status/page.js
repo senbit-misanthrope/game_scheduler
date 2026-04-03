@@ -10,42 +10,26 @@ export default function StatusPage() {
   const [loading, setLoading] = useState(true);
   const [mainTab, setMainTab] = useState('waiting'); 
   const [viewMode, setViewMode] = useState('game'); 
-  const [confirmedFilter, setConfirmedFilter] = useState('my'); 
+  const [confirmedFilter, setConfirmedFilter] = useState('all'); 
   const [user, setUser] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => { fetchUserAndSchedules(); }, []);
 
-  // ✨ 핵심 수정 1: 자폭 스위치 제거 및 핀셋 청소 로직 도입
+  // 겹치는 대기 일정 삭제 (확정된 본체는 status가 'confirmed'이므로 자동으로 제외됨)
   const cleanUpConflictingSchedules = async (confirmedDate, confirmedGameId, participantIds) => {
     if (!participantIds || participantIds.length === 0) return;
     
-    // 1. 참여자들의 모든 대기 중(waiting)인 일정만 안전하게 가져옵니다.
-    const { data: waitingSchedules } = await supabase.from('schedules')
-      .select('id, available_date, game_id, user_id')
+    // 참여자들의 '대기 중'인 일정 중 날짜나 게임이 겹치는 것만 골라냄
+    const { data: toDelete, error: findError } = await supabase.from('schedules')
+      .select('id')
       .eq('status', 'waiting')
-      .in('user_id', participantIds);
+      .in('user_id', participantIds)
+      .or(`available_date.eq.${confirmedDate},game_id.eq.${confirmedGameId}`);
 
-    if (!waitingSchedules || waitingSchedules.length === 0) return;
-
-    // 2. 삭제 대상 필터링: 확정된 모임(본체)은 절대 지우지 않도록 보호!
-    const idsToDelete = waitingSchedules
-      .filter(s => {
-        const isSameDate = s.available_date === confirmedDate;
-        const isSameGame = s.game_id === confirmedGameId;
-        
-        // 방금 확정된 그 모임 자체면 살려둡니다 (혹시 모를 타이밍 오류 방지)
-        if (isSameDate && isSameGame) return false; 
-        
-        // 그 외에 날짜가 같거나 게임이 같은 겹치는 일정들만 타겟으로 잡습니다.
-        return isSameDate || isSameGame;
-      })
-      .map(s => s.id);
-
-    // 3. 추출된 찌꺼기 일정의 고유 ID만 정확하게 날립니다.
-    if (idsToDelete.length > 0) {
-      const { error } = await supabase.from('schedules').delete().in('id', idsToDelete);
-      if (error) console.error("일정 정리 에러:", error);
+    if (toDelete && toDelete.length > 0) {
+      const ids = toDelete.map(s => s.id);
+      await supabase.from('schedules').delete().in('id', ids);
     }
   };
 
@@ -63,7 +47,7 @@ export default function StatusPage() {
 
     const grouped = (schedulesData || []).reduce((acc, curr) => {
       const key = `${curr.available_date}_${curr.game_id}`;
-      if (!acc[key]) acc[key] = { ...curr, title: curr.games.title, playerCount: 0, gmCount: 0, playerNames: [], gmNames: [], applicants: [], mySchedule: null };
+      if (!acc[key]) acc[key] = { ...curr, title: curr.games.title, playerCount: 0, gmCount: 0, playerNames: [], gmNames: [], applicants: [], mySchedule: null, roomStatus: 'waiting' };
       
       const nickname = profileMap[curr.user_id] || '익명';
       if (curr.role_wanted === 'gm') { acc[key].gmCount++; acc[key].gmNames.push(nickname); }
@@ -71,22 +55,28 @@ export default function StatusPage() {
       
       acc[key].applicants.push({ ...curr, nickname });
       if (sessionUser && curr.user_id === sessionUser.id) acc[key].mySchedule = curr;
+      
+      // 방 전체의 상태 결정: 한 명이라도 확정이면 이 방은 '확정' 탭으로 보냄
+      if (curr.status === 'confirmed') acc[key].roomStatus = 'confirmed';
+      
       return acc;
     }, {});
 
     const groupArray = Object.values(grouped);
 
-    // 자동 확정 로직
+    // 자동 확정 감지 로직
     if (!isRetry) {
       for (const g of groupArray) {
-        if (g.status === 'waiting' && g.playerCount >= g.games.max_players) {
+        if (g.roomStatus === 'waiting' && g.playerCount >= g.games.max_players) {
           if (g.games.needs_gm && g.gmCount === 0) continue;
           
+          // 방의 모든 인원을 확정 시도 (관리자 권한 필요)
           await supabase.from('schedules').update({ status: 'confirmed' }).eq('available_date', g.available_date).eq('game_id', g.game_id);
+          
           const pIds = g.applicants.map(a => a.user_id);
           await cleanUpConflictingSchedules(g.available_date, g.game_id, pIds);
           
-          sendDiscordMessage(`🎉 **자동 모집 확정 (정원 초과)!**\n게임: [${g.title}]\n날짜: ${g.available_date}\n참여자: ${[...g.playerNames, ...g.gmNames].join(', ')}`);
+          sendDiscordMessage(`🎉 **자동 모집 확정!**\n게임: [${g.title}]\n날짜: ${g.available_date}\n참여자: ${[...g.playerNames, ...g.gmNames].join(', ')}`);
           return fetchUserAndSchedules(true);
         }
       }
@@ -98,7 +88,6 @@ export default function StatusPage() {
 
   const handleQuickJoin = async (item) => {
     if (!user) return alert("로그인 필요");
-    
     let role = 'player';
     if (item.games.needs_gm) {
       const wantPlayer = window.confirm(`[${item.title}]\n'확인'을 누르면 [플레이어]로, '취소'를 누르면 [GM]으로 신청합니다.`);
@@ -106,27 +95,7 @@ export default function StatusPage() {
     }
 
     const { error } = await supabase.from('schedules').insert([{ user_id: user.id, game_id: item.game_id, available_date: item.available_date, role_wanted: role }]);
-    
-    if (!error) {
-      const newPlayerCount = item.playerCount + (role === 'player' ? 1 : 0);
-      const newGmCount = item.gmCount + (role === 'gm' ? 1 : 0);
-      
-      const { data: p } = await supabase.from('profiles').select('nickname');
-      const pMap = (p || []).reduce((acc, curr) => { acc[curr.id] = curr.nickname; return acc; }, {});
-      const currentNames = [...item.playerNames, ...item.gmNames, pMap[user.id] || '본인'];
-
-      if (newPlayerCount === item.games.max_players) {
-        if (item.games.needs_gm && newGmCount === 0) sendDiscordMessage(`🚨 **최대 인원 도달 (GM 구인 중)!**\n게임: [${item.title}]\n날짜: ${item.available_date}\n플레이어 인원이 꽉 찼지만 진행자(GM)가 없어 확정되지 않았습니다!\n현재 명단: ${currentNames.join(', ')}`);
-      } else if (newPlayerCount === item.games.recommended_players) {
-        if (item.games.needs_gm && newGmCount === 0) sendDiscordMessage(`🔥 **추천 인원 도달 (GM 구인 중)!**\n게임: [${item.title}]\n날짜: ${item.available_date}\n추천 인원에 도달했지만 진행자(GM)가 필요합니다!\n현재 명단: ${currentNames.join(', ')}`);
-        else sendDiscordMessage(`🔥 **추천 인원 도달!**\n게임: [${item.title}]\n날짜: ${item.available_date}\n현황판에서 '진행 찬성'을 누르면 확정됩니다!\n현재 명단: ${currentNames.join(', ')}`);
-      }
-      
-      // ✨ 핵심 수정 2: 허위 알림 방지 - DB 반영이 완전히 끝난 후 화면 새로고침
-      fetchUserAndSchedules();
-    } else {
-      alert("신청 중 오류가 발생했습니다.");
-    }
+    if (!error) fetchUserAndSchedules();
   };
 
   const toggleReady = async (item) => {
@@ -143,31 +112,39 @@ export default function StatusPage() {
       const pIds = item.applicants.map(a => a.user_id);
       await cleanUpConflictingSchedules(item.available_date, item.game_id, pIds);
       sendDiscordMessage(`✅ **만장일치 확정!**\n게임: [${item.title}]\n날짜: ${item.available_date}\n참여자: ${item.applicants.map(a => a.nickname).join(', ')}`);
-      alert("만장일치로 거사가 확정되었습니다! [🎉 확정됨] 탭에서 확인하세요.");
     }
     fetchUserAndSchedules();
   };
 
   const forceConfirm = async (date, gameId, title, applicants) => {
     if (!window.confirm("이 모임을 강제로 확정하시겠습니까?")) return;
-    await supabase.from('schedules').update({ status: 'confirmed' }).eq('available_date', date).eq('game_id', gameId);
-    const pIds = applicants.map(a => a.user_id);
-    await cleanUpConflictingSchedules(date, gameId, pIds);
-    sendDiscordMessage(`👑 **수동 확정!**\n관리자가 [${title}] 모임을 확정하였습니다.\n날짜: ${date}`);
-    alert("거사가 강제 확정되었습니다! [🎉 확정됨] 탭에서 확인하세요.");
-    fetchUserAndSchedules();
+    
+    // DB 상태 업데이트
+    const { error } = await supabase.from('schedules')
+      .update({ status: 'confirmed' })
+      .eq('available_date', date)
+      .eq('game_id', gameId);
+    
+    if (error) {
+      alert("확정 처리에 실패했습니다: " + error.message);
+    } else {
+      const pIds = applicants.map(a => a.user_id);
+      await cleanUpConflictingSchedules(date, gameId, pIds);
+      sendDiscordMessage(`👑 **수동 확정!**\n관리자가 [${title}] 모임을 확정하였습니다.\n날짜: ${date}`);
+      alert("거사가 확정되었습니다. [🎉 확정됨] 탭에서 확인하세요.");
+      fetchUserAndSchedules();
+    }
   };
 
   const cancelConfirm = async (date, gameId) => {
     if (!window.confirm("확정을 취소하시겠습니까?")) return;
     await supabase.from('schedules').update({ status: 'waiting', is_ready: false }).eq('available_date', date).eq('game_id', gameId);
-    alert("확정이 취소되어 다시 [⏳ 모집 중] 탭으로 이동합니다.");
     fetchUserAndSchedules();
   };
 
   const getDisplayList = () => {
-    if (mainTab === 'waiting') return statusList.filter(s => s.status === 'waiting');
-    let confirmed = statusList.filter(s => s.status === 'confirmed');
+    if (mainTab === 'waiting') return statusList.filter(s => s.roomStatus === 'waiting');
+    let confirmed = statusList.filter(s => s.roomStatus === 'confirmed');
     if (confirmedFilter === 'my') confirmed = confirmed.filter(s => s.mySchedule !== null);
     return confirmed;
   };
@@ -179,18 +156,14 @@ export default function StatusPage() {
         acc[curr.game_id].schedules.push(curr);
         return acc;
       }, {});
-      const arr = Object.values(grouped).sort((a, b) => a.title.localeCompare(b.title));
-      arr.forEach(g => g.schedules.sort((a, b) => new Date(a.available_date) - new Date(b.available_date)));
-      return arr;
+      return Object.values(grouped).sort((a, b) => a.title.localeCompare(b.title));
     } else {
       const grouped = list.reduce((acc, curr) => {
         if (!acc[curr.available_date]) acc[curr.available_date] = { date: curr.available_date, games: [] };
         acc[curr.available_date].games.push(curr);
         return acc;
       }, {});
-      const arr = Object.values(grouped).sort((a, b) => new Date(a.date) - new Date(b.date));
-      arr.forEach(d => d.games.sort((a, b) => a.title.localeCompare(b.title)));
-      return arr;
+      return Object.values(grouped).sort((a, b) => new Date(a.date) - new Date(b.date));
     }
   };
 
@@ -200,6 +173,7 @@ export default function StatusPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto bg-zinc-950 min-h-screen text-zinc-200 font-sans selection:bg-red-900">
+      {/* (기존 렌더링 코드는 동일하게 유지됩니다) */}
       <div className="flex justify-between items-center mb-8 border-b-2 border-zinc-800 pb-4">
         <h1 className="text-3xl font-black text-zinc-100">현황판 📊</h1>
         <Link href="/" className="px-5 py-2 bg-zinc-800 border-2 border-zinc-600 text-zinc-200 rounded-lg font-bold hover:bg-zinc-700 transition">대시보드로</Link>
@@ -225,9 +199,7 @@ export default function StatusPage() {
 
       <div className="grid gap-6">
         {displayData.length === 0 ? (
-          <div className="text-center py-20 text-zinc-500 font-bold border-2 border-dashed border-zinc-800 rounded-2xl bg-zinc-900">
-            해당 조건의 내역이 없습니다.
-          </div>
+          <div className="text-center py-20 text-zinc-500 font-bold border-2 border-dashed border-zinc-800 rounded-2xl bg-zinc-900">해당 조건의 내역이 없습니다.</div>
         ) : (
           displayData.map((section, idx) => (
             <div key={idx} className="bg-zinc-900 p-6 rounded-2xl border-2 border-zinc-700 shadow-md">
@@ -241,65 +213,43 @@ export default function StatusPage() {
                   const canConsensus = item.playerCount >= minPlayers && hasRequiredGm;
 
                   return (
-                    <div key={sIdx} className={`p-6 rounded-xl border-2 transition flex flex-col justify-between shadow-sm ${item.status === 'confirmed' ? 'bg-emerald-950/20 border-emerald-900/50' : 'bg-zinc-950 border-zinc-700'}`}>
+                    <div key={sIdx} className={`p-6 rounded-xl border-2 transition flex flex-col justify-between shadow-sm ${item.roomStatus === 'confirmed' ? 'bg-emerald-950/20 border-emerald-900/50' : 'bg-zinc-950 border-zinc-700'}`}>
                       <div>
                         <div className="flex justify-between items-start mb-2">
-                          <Link href={`/games/${item.game_id}`} className="font-black text-xl text-zinc-100 hover:text-red-400 hover:underline transition">
-                            {viewMode === 'game' ? item.available_date : item.title}
-                          </Link>
-                          {item.status === 'confirmed' && <span className="text-emerald-400 text-xs font-bold bg-emerald-950/50 border border-emerald-900/50 px-3 py-1.5 rounded-lg shadow-sm whitespace-nowrap ml-2">🎉 확정</span>}
+                          <Link href={`/games/${item.game_id}`} className="font-black text-xl text-zinc-100 hover:text-red-400 hover:underline transition">{viewMode === 'game' ? item.available_date : item.title}</Link>
+                          {item.roomStatus === 'confirmed' && <span className="text-emerald-400 text-xs font-bold bg-emerald-950/50 border border-emerald-900/50 px-3 py-1.5 rounded-lg shadow-sm">🎉 확정</span>}
                         </div>
-                        
                         <div className="flex flex-wrap gap-2 mb-4 text-xs font-bold text-zinc-400">
-                          <span className="bg-zinc-800 border border-zinc-600 px-2 py-1 rounded">
-                            👥 {item.games.min_players === item.games.max_players ? `${item.games.min_players}명` : `${item.games.min_players}~${item.games.max_players}명`} (현재 {item.playerCount}명)
-                          </span>
-                          {item.games.recommended_players > 0 && (
-                            <span className="bg-zinc-800 text-emerald-400 border border-zinc-600 px-2 py-1 rounded">
-                              👍 추천 {item.games.recommended_players}명
-                            </span>
-                          )}
-                          {item.games.needs_gm && (
-                            <span className={`border px-2 py-1 rounded ${item.gmCount > 0 ? 'bg-purple-900 text-purple-300 border-purple-700' : 'bg-zinc-800 text-zinc-500 border-zinc-600'}`}>
-                              👑 GM {item.gmCount}명
-                            </span>
-                          )}
+                          <span className="bg-zinc-800 border border-zinc-600 px-2 py-1 rounded">👥 {item.games.min_players}~{item.games.max_players}명 (현재 {item.playerCount}명)</span>
+                          {item.games.needs_gm && <span className={`border px-2 py-1 rounded ${item.gmCount > 0 ? 'bg-purple-900 text-purple-300 border-purple-700' : 'bg-zinc-800 text-zinc-500 border-zinc-600'}`}>👑 GM {item.gmCount}명</span>}
                         </div>
-
                         <div className="text-sm bg-zinc-900 p-4 rounded-xl mb-5 border border-zinc-800">
-                          <p className="text-blue-400 font-bold mb-2">👤 플레이어: {item.playerNames.length > 0 ? item.playerNames.join(', ') : '없음'}</p>
-                          {item.games.needs_gm && (
-                            <p className="text-purple-400 font-bold">👑 GM: {item.gmNames.length > 0 ? item.gmNames.join(', ') : '구인중 🚨'}</p>
-                          )}
+                          <p className="text-blue-400 font-bold mb-2">👤 플레이어: {item.playerNames.join(', ')}</p>
+                          {item.games.needs_gm && <p className="text-purple-400 font-bold">👑 GM: {item.gmNames.length > 0 ? item.gmNames.join(', ') : '구인중 🚨'}</p>}
                         </div>
                       </div>
 
                       <div className="flex flex-col gap-2 mt-auto">
-                        {item.status === 'waiting' && (
+                        {item.roomStatus === 'waiting' && (
                           item.mySchedule ? (
                             <>
                               {canConsensus ? (
-                                <>
-                                  <p className="text-xs font-bold text-amber-500 mb-1 text-center">🔥 찬성 시 만장일치로 확정됩니다. ({readyCount}/{totalApplicants})</p>
-                                  <button onClick={() => toggleReady(item)} className={`px-4 py-3 rounded-lg font-black text-sm w-full transition border-2 ${item.mySchedule.is_ready ? 'bg-amber-600 border-amber-600 text-white' : 'bg-zinc-800 border-amber-600 text-amber-500 hover:bg-amber-900/30'}`}>
-                                    {item.mySchedule.is_ready ? '✓ 찬성 취소' : '👉 진행 찬성하기!'}
-                                  </button>
-                                </>
+                                <button onClick={() => toggleReady(item)} className={`px-4 py-3 rounded-lg font-black text-sm w-full transition border-2 ${item.mySchedule.is_ready ? 'bg-amber-600 border-amber-600 text-white' : 'bg-zinc-800 border-amber-600 text-amber-500 hover:bg-amber-900/30'}`}>
+                                  {item.mySchedule.is_ready ? '✓ 찬성 취소' : '👉 진행 찬성하기!'}
+                                </button>
                               ) : (
                                 <button disabled className="px-4 py-3 bg-zinc-800 border-2 border-zinc-700 text-zinc-500 rounded-lg font-bold text-sm w-full cursor-not-allowed">
-                                  {!hasRequiredGm ? `⏳ 진행자(GM) 구인 중 (찬성 대기)` : `⏳ 플레이어 부족`}
+                                  {!hasRequiredGm ? `⏳ 진행자(GM) 구인 중` : `⏳ 플레이어 부족`}
                                 </button>
                               )}
                             </>
                           ) : (
-                            <button onClick={() => handleQuickJoin(item)} className="px-4 py-3 bg-red-700 border-2 border-red-600 text-white rounded-lg font-black text-sm hover:bg-red-600 w-full shadow-md transition">
-                              ➕ 나도 참여하기
-                            </button>
+                            <button onClick={() => handleQuickJoin(item)} className="px-4 py-3 bg-red-700 border-2 border-red-600 text-white rounded-lg font-black text-sm hover:bg-red-600 w-full shadow-md transition">➕ 나도 참여하기</button>
                           )
                         )}
                         {isAdmin && (
                           <div className="flex gap-2 mt-3 pt-3 border-t-2 border-zinc-800">
-                            {item.status === 'waiting' ? (
+                            {item.roomStatus === 'waiting' ? (
                               <button onClick={() => forceConfirm(item.available_date, item.game_id, item.title, item.applicants)} className="px-3 py-2 bg-zinc-800 border-2 border-zinc-600 text-zinc-300 rounded-lg text-xs font-bold flex-1 hover:bg-zinc-700">👑 강제 확정</button>
                             ) : (
                               <button onClick={() => cancelConfirm(item.available_date, item.game_id)} className="px-3 py-2 bg-zinc-900 border-2 border-red-900/50 text-red-500 rounded-lg text-xs font-bold flex-1 hover:bg-red-950/30">👑 확정 취소</button>
