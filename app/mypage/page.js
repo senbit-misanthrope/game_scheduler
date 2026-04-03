@@ -68,11 +68,32 @@ export default function MyPage() {
 
   const handleBatchCancel = async () => {
     if (!window.confirm(`선택한 ${selectedIds.length}개의 서약을 파기하시겠습니까?`)) return;
+    
+    // ✨ 1. 파기하려는 스케줄의 상태와 정보 미리 확인
+    const { data: itemsToDelete } = await supabase.from('schedules').select('game_id, available_date, status').in('id', selectedIds);
+
+    // 2. 내 스케줄 파기 (삭제)
     const { error } = await supabase.from('schedules').delete().in('id', selectedIds);
+    
     if (!error) {
       setSchedules(schedules.filter(s => !selectedIds.includes(s.id)));
       setSelectedIds([]); 
-      alert("서약이 파기되었습니다.");
+
+      // ✨ 3. 확정(confirmed) 상태였던 모임이 깨졌다면, 남은 사람들을 waiting으로 되돌림
+      const confirmedItems = itemsToDelete?.filter(item => item.status === 'confirmed') || [];
+      for (const item of confirmedItems) {
+         await supabase.from('schedules')
+           .update({ status: 'waiting' })
+           .eq('game_id', item.game_id)
+           .eq('available_date', item.available_date)
+           .eq('status', 'confirmed');
+      }
+
+      if (confirmedItems.length > 0) {
+        alert("서약이 파기되었습니다. 멤버 이탈로 인해 해당 모임은 다시 [재모집] 상태로 강등됩니다.");
+      } else {
+        alert("서약이 파기되었습니다.");
+      }
     }
   };
 

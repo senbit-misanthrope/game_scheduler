@@ -94,16 +94,32 @@ export default function Home() {
   };
 
   const submitSchedules = async () => {
-    if (selectedGameIds.length === 0) return alert('게임을 선택해주세요!');
-    if (selectedDates.length === 0) return alert('거사일을 선택해주세요!');
+      if (selectedGameIds.length === 0) return alert('게임을 선택해주세요!');
+      if (selectedDates.length === 0) return alert('거사일을 선택해주세요!');
+      
+      setIsSubmitting(true);
+  
+      // ✨ 추가된 로직: 현재 유저가 이미 신청한 내역(대기/확정 모두) 가져오기
+      const { data: existingSchedules } = await supabase
+        .from('schedules')
+        .select('game_id, available_date')
+        .eq('user_id', user.id);
+  
+      const insertData = [];
+      for (const gameId of selectedGameIds) {
+        for (const date of selectedDates) {
+          // ✨ 추가된 로직: 중복 검사
+          const isDuplicate = existingSchedules?.some(s => s.game_id === gameId && s.available_date === date);
+          if (isDuplicate) {
+            alert(`이미 해당 날짜(${date})에 이 게임의 서약(참가 또는 GM)이 존재합니다!\n중복 신청은 불가능합니다.`);
+            setIsSubmitting(false);
+            return; // 에러 발생 시 즉시 중단
+          }
+          insertData.push({ user_id: user.id, game_id: gameId, available_date: date, role_wanted: selectedRole });
+        }
+      }
+  
     
-    setIsSubmitting(true);
-    const insertData = [];
-    selectedGameIds.forEach(gameId => {
-      selectedDates.forEach(date => {
-        insertData.push({ user_id: user.id, game_id: gameId, available_date: date, role_wanted: selectedRole });
-      });
-    });
 
     const { error } = await supabase.from('schedules').insert(insertData);
     
