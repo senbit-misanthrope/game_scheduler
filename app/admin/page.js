@@ -111,9 +111,22 @@ export default function AdminPage() {
   const handleDeleteGame = async (id, title) => {
     if (!window.confirm(`[${title}] 게임을 아지트에서 완전히 삭제하시겠습니까? (관련된 모든 플레이 기록과 리뷰도 함께 삭제됩니다)`)) return;
     
+    // ✨ 핵심 수정: 게임 본체를 지우기 전에, 이 게임과 얽혀있는 찌꺼기 데이터들을 먼저 청소합니다!
+    await Promise.all([
+      supabase.from('schedules').delete().eq('game_id', id),   // 예정된 일정 삭제
+      supabase.from('played_games').delete().eq('game_id', id), // 핏빛 기록 삭제
+      supabase.from('reviews').delete().eq('game_id', id)       // 평점 및 리뷰 삭제
+    ]);
+
+    // 잔해물이 모두 치워졌으니, 이제 맘 편히 게임 본체를 삭제합니다.
     const { error } = await supabase.from('games').delete().eq('id', id);
-    if (error) alert("삭제 실패: " + error.message);
-    else fetchGames();
+    
+    if (error) {
+      alert("삭제 실패: " + error.message);
+    } else {
+      alert("성공적으로 아지트에서 기록이 말소되었습니다. 🗑️");
+      fetchGames();
+    }
   };
 
   // ✨ 추가: 검색어에 따라 게임 목록 필터링
