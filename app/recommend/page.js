@@ -175,17 +175,28 @@ export default function RecommendPage() {
                       )}
                     </div>
                     <div className="flex flex-wrap gap-2 text-xs font-bold text-zinc-400">
-                      {/* ✨ 인원수 깔끔하게 고정 표기 로직 적용 */}
+                      {/* ✨ 인원수 표기 */}
                       <span className="bg-zinc-800 border border-zinc-600 px-2.5 py-1.5 rounded-md text-zinc-300">
                         👥 {game.min_players === game.max_players ? `${game.min_players}명` : `${game.min_players}~${game.max_players}명`}
                       </span>
-                      {/* ✨ 추천 인원 표시 완벽 복구 */}
+                      {/* ✨ 추천 인원 표시 */}
                       {game.recommended_players > 0 && (
                         <span className="bg-zinc-800 border border-zinc-600 px-2.5 py-1.5 rounded-md text-emerald-400">
                           👍 추천 {game.recommended_players}명
                         </span>
                       )}
-                      {game.play_time && <span className="bg-zinc-800 border border-zinc-600 px-2.5 py-1.5 rounded-md text-amber-400">⏳ {game.play_time}</span>}
+                      {/* ✨ 플레이 시간 표시 */}
+                      {game.play_time && (
+                        <span className="bg-zinc-800 border border-zinc-600 px-2.5 py-1.5 rounded-md text-amber-400">
+                          ⏳ {game.play_time}
+                        </span>
+                      )}
+                      {/* ✨ 추가된 GM 필수 여부 뱃지 */}
+                      {game.needs_gm && (
+                        <span className="bg-zinc-800 text-purple-400 px-2.5 py-1.5 rounded-md border border-purple-800 whitespace-nowrap">
+                          👑 GM 필수
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="text-right">
