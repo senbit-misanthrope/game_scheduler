@@ -11,10 +11,16 @@ export default function StatusPage() {
   const [mainTab, setMainTab] = useState('waiting'); 
   const [viewMode, setViewMode] = useState('game'); 
   const [confirmedFilter, setConfirmedFilter] = useState('all'); 
+  
+  // ✨ 추가: '모집 중' 탭에서 해본/안해본 게임 필터 상태 관리 ('unplayed'가 기본값)
+  const [playedFilter, setPlayedFilter] = useState('unplayed'); 
+  
   const [user, setUser] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
   
-  // ✨ 추가: 모달 상태 관리 (참여하려는 모임의 정보를 담습니다)
+  // ✨ 추가: 유저의 '핏빛 기록'을 저장할 상태
+  const [myPlayedGames, setMyPlayedGames] = useState([]);
+
   const [joinModalItem, setJoinModalItem] = useState(null);
 
   useEffect(() => { fetchUserAndSchedules(); }, []);
@@ -37,8 +43,17 @@ export default function StatusPage() {
     const { data: { user: sessionUser } } = await supabase.auth.getUser();
     if (sessionUser) {
       setUser(sessionUser);
-      const { data: pr } = await supabase.from('profiles').select('is_admin').eq('id', sessionUser.id).single();
-      if (pr?.is_admin) setIsAdmin(true);
+      // ✨ 추가: 유저 정보 가져올 때 '핏빛 기록'도 함께 가져오기
+      const [prRes, playedRes] = await Promise.all([
+        supabase.from('profiles').select('is_admin').eq('id', sessionUser.id).single(),
+        supabase.from('played_games').select('game_id').eq('user_id', sessionUser.id).eq('is_gm', false) // 일반 플레이어로 참여한 기록만
+      ]);
+      
+      if (prRes.data?.is_admin) setIsAdmin(true);
+      if (playedRes.data) {
+        // 내가 해본 게임의 ID들만 배열로 저장
+        setMyPlayedGames(playedRes.data.map(p => p.game_id));
+      }
     }
 
     const { data: schedulesData } = await supabase.from('schedules').select(`*, games(*)`).order('available_date');
@@ -79,13 +94,11 @@ export default function StatusPage() {
     setLoading(false);
   };
 
-  // ✨ 수정: 버튼을 누르면 모달창만 띄워줍니다.
   const openJoinModal = (item) => {
     if (!user) return alert("로그인 필요");
     setJoinModalItem(item);
   };
 
-  // ✨ 추가: 모달 안에서 실제 역할 버튼을 눌렀을 때 실행되는 함수
   const executeJoin = async (role) => {
     if (!joinModalItem) return;
 
@@ -97,7 +110,6 @@ export default function StatusPage() {
     }]);
 
     if (!error) {
-      // 디스코드 알림을 위해 카운트 미리 계산
       const newPlayerCount = joinModalItem.playerCount + (role === 'player' ? 1 : 0);
       const newGmCount = joinModalItem.gmCount + (role === 'gm' ? 1 : 0);
       const { data: p } = await supabase.from('profiles').select('nickname');
@@ -111,8 +123,8 @@ export default function StatusPage() {
         else sendDiscordMessage(`🔥 **추천 인원 도달!**\n게임: [${joinModalItem.title}]\n날짜: ${joinModalItem.available_date}\n현황판에서 '진행 찬성'을 누르면 확정됩니다!\n현재 명단: ${currentNames.join(', ')}`);
       }
       
-      setJoinModalItem(null); // 모달 닫기
-      fetchUserAndSchedules(); // 화면 갱신
+      setJoinModalItem(null); 
+      fetchUserAndSchedules(); 
     } else {
       alert("신청 중 오류가 발생했습니다.");
     }
@@ -154,8 +166,24 @@ export default function StatusPage() {
     fetchUserAndSchedules();
   };
 
+  // ✨ 수정: 리스트 필터링 시 해본/안해본 게임 필터 적용
   const getDisplayList = () => {
-    if (mainTab === 'waiting') return statusList.filter(s => s.roomStatus === 'waiting');
+    if (mainTab === 'waiting') {
+      let waitingList = statusList.filter(s => s.roomStatus === 'waiting');
+      
+      // 유저가 로그인한 상태라면 필터 적용
+      if (user) {
+        if (playedFilter === 'unplayed') {
+          // 내가 안 해본 게임의 일정만
+          waitingList = waitingList.filter(s => !myPlayedGames.includes(s.game_id));
+        } else if (playedFilter === 'played') {
+          // 내가 이미 해본 게임의 일정만
+          waitingList = waitingList.filter(s => myPlayedGames.includes(s.game_id));
+        }
+      }
+      return waitingList;
+    }
+    
     let confirmed = statusList.filter(s => s.roomStatus === 'confirmed');
     if (confirmedFilter === 'my') confirmed = confirmed.filter(s => s.mySchedule !== null);
     return confirmed;
@@ -195,11 +223,20 @@ export default function StatusPage() {
         <button onClick={() => setMainTab('confirmed')} className={`flex-1 py-3 text-lg font-extrabold rounded-t-xl border-b-4 transition ${mainTab === 'confirmed' ? 'border-emerald-500 text-emerald-400 bg-zinc-900' : 'border-zinc-800 text-zinc-500 hover:bg-zinc-900'}`}>🎉 확정됨</button>
       </div>
 
-      <div className="flex justify-between items-center mb-8 bg-zinc-900 p-4 rounded-xl border-2 border-zinc-800 shadow-sm">
+      <div className="flex justify-between items-center mb-8 bg-zinc-900 p-4 rounded-xl border-2 border-zinc-800 shadow-sm flex-wrap gap-4">
         <div className="flex gap-2">
           <button onClick={() => setViewMode('game')} className={`px-4 py-1.5 rounded-lg text-sm font-bold border-2 transition ${viewMode === 'game' ? 'bg-zinc-700 border-zinc-500 text-white' : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700'}`}>🎮 게임별</button>
           <button onClick={() => setViewMode('date')} className={`px-4 py-1.5 rounded-lg text-sm font-bold border-2 transition ${viewMode === 'date' ? 'bg-zinc-700 border-zinc-500 text-white' : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700'}`}>📅 날짜별</button>
         </div>
+        
+        {/* ✨ 추가: 모집 중 탭일 때 보이는 해본/안해본 필터 (유저 로그인 시에만 보임) */}
+        {mainTab === 'waiting' && user && (
+          <div className="flex gap-1">
+            <button onClick={() => setPlayedFilter('unplayed')} className={`px-4 py-1.5 rounded-lg text-sm font-bold border-2 transition ${playedFilter === 'unplayed' ? 'bg-red-950 border-red-700 text-red-400' : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700'}`}>🎲 안 해본 게임</button>
+            <button onClick={() => setPlayedFilter('played')} className={`px-4 py-1.5 rounded-lg text-sm font-bold border-2 transition ${playedFilter === 'played' ? 'bg-zinc-700 border-zinc-500 text-white' : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700'}`}>🩸 이미 플레이 함</button>
+          </div>
+        )}
+
         {mainTab === 'confirmed' && (
           <div className="flex gap-1">
             <button onClick={() => setConfirmedFilter('my')} className={`px-4 py-1.5 rounded-lg text-sm font-bold border-2 transition ${confirmedFilter === 'my' ? 'bg-emerald-950 border-emerald-700 text-emerald-400' : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700'}`}>👤 내 일정</button>
@@ -277,7 +314,6 @@ export default function StatusPage() {
         )}
       </div>
 
-      {/* ✨ 추가: 세련된 참여 모달 (UX 개선) */}
       {joinModalItem && (() => {
         const isPlayerFull = joinModalItem.playerCount >= joinModalItem.games.max_players;
         const isGmFull = joinModalItem.gmCount >= 1;
@@ -291,7 +327,6 @@ export default function StatusPage() {
               <p className="text-sm text-zinc-400 mb-6 font-bold">{joinModalItem.available_date} 거사에 어떤 역할로 참여하시겠습니까?</p>
               
               <div className="flex flex-col gap-3">
-                {/* 플레이어 버튼 (정원 초과 시 비활성화) */}
                 <button 
                   onClick={() => executeJoin('player')} 
                   disabled={isPlayerFull}
@@ -300,7 +335,6 @@ export default function StatusPage() {
                   {isPlayerFull ? '🚫 플레이어 정원 마감' : '🩸 플레이어로 참여'}
                 </button>
 
-                {/* GM 버튼 (GM 필요 게임일 때만 보이고, 1명 차면 비활성화) */}
                 {joinModalItem.games.needs_gm && (
                   <button 
                     onClick={() => executeJoin('gm')} 
@@ -311,7 +345,6 @@ export default function StatusPage() {
                   </button>
                 )}
 
-                {/* 취소 버튼 (안전한 탈출구) */}
                 <button 
                   onClick={() => setJoinModalItem(null)} 
                   className="px-4 py-3 mt-2 bg-zinc-800 border-2 border-zinc-600 text-zinc-300 rounded-xl font-bold text-sm w-full hover:bg-zinc-700 transition"
