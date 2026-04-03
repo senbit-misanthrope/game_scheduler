@@ -70,7 +70,7 @@ export default function AdminPage() {
 
   const openAddModal = () => {
     setEditingGame(null);
-    setFormData({ title: '', description: '', min_players: 4, max_players: 10, recommended_players: 8, play_time: 0, needs_gm: false });
+    setFormData({ title: '', description: '', min_players: 4, max_players: 10, recommended_players: 8, play_time: '', needs_gm: false });
     setIsModalOpen(true);
   };
 
@@ -215,4 +215,79 @@ export default function AdminPage() {
               <tbody className="divide-y border-zinc-800">
                 {users.map(u => (
                   <tr key={u.id} className="hover:bg-zinc-800/50 transition">
-                    <td className="p-4 font-black text-zinc-1
+                    <td className="p-4 font-black text-zinc-100">{u.nickname || '익명 요원'}</td>
+                    <td className="p-4 text-xs font-mono text-zinc-500">{u.id}</td>
+                    <td className="p-4 text-center">
+                      <button 
+                        onClick={() => toggleAdminRole(u.id, u.is_admin)} 
+                        className={`px-4 py-1.5 rounded-lg text-xs font-bold border-2 transition ${u.is_admin ? 'bg-red-900 border-red-700 text-white hover:bg-red-800' : 'bg-zinc-800 border-zinc-600 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'}`}
+                      >
+                        {u.is_admin ? '👑 관리자 (강등하기)' : '👤 일반 (승급하기)'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black/80 flex justify-center items-center z-50 p-4">
+          <div className="bg-zinc-900 border-2 border-zinc-700 p-8 rounded-2xl max-w-lg w-full shadow-2xl max-h-[90vh] overflow-y-auto">
+            <h2 className="text-2xl font-black mb-6 text-zinc-100 border-b-2 border-zinc-800 pb-4">
+              {editingGame ? '게임 정보 수정' : '신규 게임 입고'}
+            </h2>
+            
+            <div className="space-y-4 mb-8">
+              <div>
+                <label className="block text-sm font-bold text-zinc-400 mb-1">게임명 *</label>
+                <input type="text" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} className="w-full bg-zinc-800 border-2 border-zinc-600 p-3 rounded-lg text-zinc-100 outline-none focus:border-purple-600 transition" />
+              </div>
+              
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-sm font-bold text-zinc-400 mb-1">최소 인원 *</label>
+                  <input type="number" value={formData.min_players} onChange={e => setFormData({...formData, min_players: e.target.value})} className="w-full bg-zinc-800 border-2 border-zinc-600 p-3 rounded-lg text-zinc-100 outline-none focus:border-purple-600 transition" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-zinc-400 mb-1">최대 인원 *</label>
+                  <input type="number" value={formData.max_players} onChange={e => setFormData({...formData, max_players: e.target.value})} className="w-full bg-zinc-800 border-2 border-zinc-600 p-3 rounded-lg text-zinc-100 outline-none focus:border-purple-600 transition" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-zinc-400 mb-1">추천 인원 *</label>
+                  <input type="number" value={formData.recommended_players} onChange={e => setFormData({...formData, recommended_players: e.target.value})} className="w-full bg-zinc-800 border-2 border-zinc-600 p-3 rounded-lg text-zinc-100 outline-none focus:border-emerald-600 transition" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-zinc-400 mb-1">예상 플레이 시간 (예: 60~90분)</label>
+                <input type="text" value={formData.play_time || ''} onChange={e => setFormData({...formData, play_time: e.target.value})} className="w-full bg-zinc-800 border-2 border-zinc-600 p-3 rounded-lg text-zinc-100 outline-none focus:border-purple-600 transition" />
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-zinc-400 mb-1">게임 설명</label>
+                <textarea value={formData.description || ''} onChange={e => setFormData({...formData, description: e.target.value})} className="w-full bg-zinc-800 border-2 border-zinc-600 p-3 rounded-lg text-zinc-100 outline-none focus:border-purple-600 transition h-24 resize-none" />
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <input type="checkbox" id="needs_gm" checked={formData.needs_gm} onChange={e => setFormData({...formData, needs_gm: e.target.checked})} className="w-5 h-5 accent-purple-600 rounded border-zinc-600 cursor-pointer" />
+                <label htmlFor="needs_gm" className="text-sm font-bold text-zinc-300 cursor-pointer select-none">
+                  이 게임은 진행자(GM)가 반드시 필요합니다.
+                </label>
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-4">
+              <button onClick={() => setIsModalOpen(false)} className="flex-1 py-3 bg-zinc-800 border-2 border-zinc-600 text-zinc-200 rounded-xl font-bold hover:bg-zinc-700 transition">취소</button>
+              <button onClick={handleSaveGame} className="flex-1 py-3 bg-purple-800 border-2 border-purple-600 text-white rounded-xl font-black shadow-lg hover:bg-purple-700 transition">
+                {editingGame ? '수정 완료' : '등록하기'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
