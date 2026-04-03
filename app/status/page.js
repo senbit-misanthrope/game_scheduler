@@ -70,7 +70,6 @@ export default function StatusPage() {
   const handleQuickJoin = async (item) => {
     if (!user) return alert("로그인 필요");
     
-    // GM이 필요 없는 게임은 무조건 player로만 신청되도록 안전장치 유지
     let role = 'player';
     if (item.games.needs_gm) {
       const wantPlayer = window.confirm(`[${item.title}]\n'확인'을 누르면 [플레이어]로, '취소'를 누르면 [GM]으로 신청합니다.`);
@@ -210,14 +209,28 @@ export default function StatusPage() {
                   return (
                     <div key={sIdx} className={`p-6 rounded-xl border-2 transition flex flex-col justify-between shadow-sm ${item.status === 'confirmed' ? 'bg-emerald-950/20 border-emerald-900/50' : 'bg-zinc-950 border-zinc-700'}`}>
                       <div>
-                        <div className="flex justify-between items-start mb-4">
+                        <div className="flex justify-between items-start mb-2">
                           <Link href={`/games/${item.game_id}`} className="font-black text-xl text-zinc-100 hover:text-red-400 hover:underline transition">
                             {viewMode === 'game' ? item.available_date : item.title}
                           </Link>
-                          {item.status === 'confirmed' && <span className="text-emerald-400 text-xs font-bold bg-emerald-950/50 border border-emerald-900/50 px-3 py-1.5 rounded-lg shadow-sm">🎉 확정</span>}
+                          {item.status === 'confirmed' && <span className="text-emerald-400 text-xs font-bold bg-emerald-950/50 border border-emerald-900/50 px-3 py-1.5 rounded-lg shadow-sm whitespace-nowrap ml-2">🎉 확정</span>}
                         </div>
+                        
+                        {/* ✨ 추가된 인원 정보 뱃지 */}
+                        <div className="flex flex-wrap gap-2 mb-4 text-xs font-bold text-zinc-400">
+                          <span className="bg-zinc-800 border border-zinc-600 px-2 py-1 rounded">
+                            👥 {item.games.min_players === item.games.max_players ? `${item.games.min_players}명` : `${item.games.min_players}~${item.games.max_players}명`}
+                          </span>
+                          {item.games.recommended_players > 0 && (
+                            <span className="bg-zinc-800 text-emerald-400 border border-zinc-600 px-2 py-1 rounded">
+                              👍 추천 {item.games.recommended_players}명
+                            </span>
+                          )}
+                        </div>
+
                         <div className="text-sm bg-zinc-900 p-4 rounded-xl mb-5 border border-zinc-800">
-                          <p className="text-blue-400 font-bold mb-2">👤 플레이어: {item.playerNames.join(', ')} ({item.playerCount}/{item.games.recommended_players})</p>
+                          {/* ✨ 수정: 인원 표시 (1/4) 제거, 닉네임만 표시 */}
+                          <p className="text-blue-400 font-bold mb-2">👤 플레이어: {item.playerNames.length > 0 ? item.playerNames.join(', ') : '없음'}</p>
                           {item.games.needs_gm && (
                             <p className="text-purple-400 font-bold">👑 GM: {item.gmNames.length > 0 ? item.gmNames.join(', ') : '구인중 🚨'}</p>
                           )}
@@ -237,7 +250,8 @@ export default function StatusPage() {
                                 </>
                               ) : (
                                 <button disabled className="px-4 py-3 bg-zinc-800 border-2 border-zinc-700 text-zinc-500 rounded-lg font-bold text-sm w-full cursor-not-allowed">
-                                  {!hasRequiredGm ? `⏳ 진행자(GM) 구인 중 (찬성 대기)` : `⏳ 플레이어 부족 (${item.playerCount}/${minPlayers}명)`}
+                                  {/* ✨ 수정: 버튼 텍스트에서 인원 현황 제거 */}
+                                  {!hasRequiredGm ? `⏳ 진행자(GM) 구인 중 (찬성 대기)` : `⏳ 플레이어 부족`}
                                 </button>
                               )}
                             </>
@@ -247,7 +261,6 @@ export default function StatusPage() {
                             </button>
                           )
                         )}
-                        {/* ✨ 오직 최고 관리자(isAdmin)만 강제 확정/취소 가능하도록 복구 */}
                         {isAdmin && (
                           <div className="flex gap-2 mt-3 pt-3 border-t-2 border-zinc-800">
                             {item.status === 'waiting' ? (
