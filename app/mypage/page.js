@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
+// ✨ 추가: 디스코드 알림 발송을 위한 임포트
+import { sendDiscordMessage } from '@/lib/notifications';
 
 export default function MyPage() {
   const [user, setUser] = useState(null);
@@ -95,9 +97,12 @@ export default function MyPage() {
            .eq('game_id', item.games.id)
            .eq('available_date', item.available_date)
            .eq('status', 'confirmed');
+
+         // ✨ 추가: 확정된 일정이 취소되어 모집 중으로 돌아갈 때 디스코드 알림 발송!
+         sendDiscordMessage(`🚨 **거사 확정 취소 (멤버 이탈)**\n게임: [${item.games.title}]\n날짜: ${item.available_date}\n요원 한 명이 서약을 파기하여 방이 다시 [모집 중] 상태로 돌아갔습니다. 🩸`);
       }
 
-      if (confirmedItems.length > 0) alert("서약이 파기되었습니다. 멤버 이탈로 인해 해당 모임은 다시 [모집 중] 상태로 강등됩니다.");
+      if (confirmedItems.length > 0) alert("서약이 파기되었습니다. 멤버 이탈로 인해 해당 모임은 다시 [모집 중] 상태로 강등되며, 알림이 발송되었습니다.");
       else alert("서약이 파기되었습니다.");
       
       getUserAndData(); 
