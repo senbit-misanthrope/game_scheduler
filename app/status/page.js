@@ -13,14 +13,14 @@ export default function StatusPage() {
   const [confirmedFilter, setConfirmedFilter] = useState('all'); 
   const [user, setUser] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  
+  // ✨ 추가: 모달 상태 관리 (참여하려는 모임의 정보를 담습니다)
+  const [joinModalItem, setJoinModalItem] = useState(null);
 
   useEffect(() => { fetchUserAndSchedules(); }, []);
 
-  // 겹치는 대기 일정 삭제 (확정된 본체는 status가 'confirmed'이므로 자동으로 제외됨)
   const cleanUpConflictingSchedules = async (confirmedDate, confirmedGameId, participantIds) => {
     if (!participantIds || participantIds.length === 0) return;
-    
-    // 참여자들의 '대기 중'인 일정 중 날짜나 게임이 겹치는 것만 골라냄
     const { data: toDelete, error: findError } = await supabase.from('schedules')
       .select('id')
       .eq('status', 'waiting')
@@ -55,24 +55,18 @@ export default function StatusPage() {
       
       acc[key].applicants.push({ ...curr, nickname });
       if (sessionUser && curr.user_id === sessionUser.id) acc[key].mySchedule = curr;
-      
-      // 방 전체의 상태 결정: 한 명이라도 확정이면 이 방은 '확정' 탭으로 보냄
       if (curr.status === 'confirmed') acc[key].roomStatus = 'confirmed';
-      
       return acc;
     }, {});
 
     const groupArray = Object.values(grouped);
 
-    // 자동 확정 감지 로직
     if (!isRetry) {
       for (const g of groupArray) {
         if (g.roomStatus === 'waiting' && g.playerCount >= g.games.max_players) {
           if (g.games.needs_gm && g.gmCount === 0) continue;
           
-          // 방의 모든 인원을 확정 시도 (관리자 권한 필요)
           await supabase.from('schedules').update({ status: 'confirmed' }).eq('available_date', g.available_date).eq('game_id', g.game_id);
-          
           const pIds = g.applicants.map(a => a.user_id);
           await cleanUpConflictingSchedules(g.available_date, g.game_id, pIds);
           
@@ -81,21 +75,47 @@ export default function StatusPage() {
         }
       }
     }
-
     setStatusList(groupArray);
     setLoading(false);
   };
 
-  const handleQuickJoin = async (item) => {
+  // ✨ 수정: 버튼을 누르면 모달창만 띄워줍니다.
+  const openJoinModal = (item) => {
     if (!user) return alert("로그인 필요");
-    let role = 'player';
-    if (item.games.needs_gm) {
-      const wantPlayer = window.confirm(`[${item.title}]\n'확인'을 누르면 [플레이어]로, '취소'를 누르면 [GM]으로 신청합니다.`);
-      if (!wantPlayer) role = 'gm';
-    }
+    setJoinModalItem(item);
+  };
 
-    const { error } = await supabase.from('schedules').insert([{ user_id: user.id, game_id: item.game_id, available_date: item.available_date, role_wanted: role }]);
-    if (!error) fetchUserAndSchedules();
+  // ✨ 추가: 모달 안에서 실제 역할 버튼을 눌렀을 때 실행되는 함수
+  const executeJoin = async (role) => {
+    if (!joinModalItem) return;
+
+    const { error } = await supabase.from('schedules').insert([{ 
+      user_id: user.id, 
+      game_id: joinModalItem.game_id, 
+      available_date: joinModalItem.available_date, 
+      role_wanted: role 
+    }]);
+
+    if (!error) {
+      // 디스코드 알림을 위해 카운트 미리 계산
+      const newPlayerCount = joinModalItem.playerCount + (role === 'player' ? 1 : 0);
+      const newGmCount = joinModalItem.gmCount + (role === 'gm' ? 1 : 0);
+      const { data: p } = await supabase.from('profiles').select('nickname');
+      const pMap = (p || []).reduce((acc, curr) => { acc[curr.id] = curr.nickname; return acc; }, {});
+      const currentNames = [...joinModalItem.playerNames, ...joinModalItem.gmNames, pMap[user.id] || '본인'];
+
+      if (newPlayerCount === joinModalItem.games.max_players) {
+        if (joinModalItem.games.needs_gm && newGmCount === 0) sendDiscordMessage(`🚨 **최대 인원 도달 (GM 구인 중)!**\n게임: [${joinModalItem.title}]\n날짜: ${joinModalItem.available_date}\n플레이어 인원이 꽉 찼지만 진행자(GM)가 없어 확정되지 않았습니다!\n현재 명단: ${currentNames.join(', ')}`);
+      } else if (newPlayerCount === joinModalItem.games.recommended_players) {
+        if (joinModalItem.games.needs_gm && newGmCount === 0) sendDiscordMessage(`🔥 **추천 인원 도달 (GM 구인 중)!**\n게임: [${joinModalItem.title}]\n날짜: ${joinModalItem.available_date}\n추천 인원에 도달했지만 진행자(GM)가 필요합니다!\n현재 명단: ${currentNames.join(', ')}`);
+        else sendDiscordMessage(`🔥 **추천 인원 도달!**\n게임: [${joinModalItem.title}]\n날짜: ${joinModalItem.available_date}\n현황판에서 '진행 찬성'을 누르면 확정됩니다!\n현재 명단: ${currentNames.join(', ')}`);
+      }
+      
+      setJoinModalItem(null); // 모달 닫기
+      fetchUserAndSchedules(); // 화면 갱신
+    } else {
+      alert("신청 중 오류가 발생했습니다.");
+    }
   };
 
   const toggleReady = async (item) => {
@@ -118,16 +138,8 @@ export default function StatusPage() {
 
   const forceConfirm = async (date, gameId, title, applicants) => {
     if (!window.confirm("이 모임을 강제로 확정하시겠습니까?")) return;
-    
-    // DB 상태 업데이트
-    const { error } = await supabase.from('schedules')
-      .update({ status: 'confirmed' })
-      .eq('available_date', date)
-      .eq('game_id', gameId);
-    
-    if (error) {
-      alert("확정 처리에 실패했습니다: " + error.message);
-    } else {
+    const { error } = await supabase.from('schedules').update({ status: 'confirmed' }).eq('available_date', date).eq('game_id', gameId);
+    if (!error) {
       const pIds = applicants.map(a => a.user_id);
       await cleanUpConflictingSchedules(date, gameId, pIds);
       sendDiscordMessage(`👑 **수동 확정!**\n관리자가 [${title}] 모임을 확정하였습니다.\n날짜: ${date}`);
@@ -172,8 +184,7 @@ export default function StatusPage() {
   if (loading) return <div className="p-8 text-center text-lg font-bold text-zinc-400 bg-zinc-950 min-h-screen">현황을 불러오는 중...</div>;
 
   return (
-    <div className="p-4 md:p-8 max-w-5xl mx-auto bg-zinc-950 min-h-screen text-zinc-200 font-sans selection:bg-red-900">
-      {/* (기존 렌더링 코드는 동일하게 유지됩니다) */}
+    <div className="p-4 md:p-8 max-w-5xl mx-auto bg-zinc-950 min-h-screen text-zinc-200 font-sans selection:bg-red-900 relative">
       <div className="flex justify-between items-center mb-8 border-b-2 border-zinc-800 pb-4">
         <h1 className="text-3xl font-black text-zinc-100">현황판 📊</h1>
         <Link href="/" className="px-5 py-2 bg-zinc-800 border-2 border-zinc-600 text-zinc-200 rounded-lg font-bold hover:bg-zinc-700 transition">대시보드로</Link>
@@ -244,7 +255,7 @@ export default function StatusPage() {
                               )}
                             </>
                           ) : (
-                            <button onClick={() => handleQuickJoin(item)} className="px-4 py-3 bg-red-700 border-2 border-red-600 text-white rounded-lg font-black text-sm hover:bg-red-600 w-full shadow-md transition">➕ 나도 참여하기</button>
+                            <button onClick={() => openJoinModal(item)} className="px-4 py-3 bg-red-700 border-2 border-red-600 text-white rounded-lg font-black text-sm hover:bg-red-600 w-full shadow-md transition">➕ 나도 참여하기</button>
                           )
                         )}
                         {isAdmin && (
@@ -265,6 +276,53 @@ export default function StatusPage() {
           ))
         )}
       </div>
+
+      {/* ✨ 추가: 세련된 참여 모달 (UX 개선) */}
+      {joinModalItem && (() => {
+        const isPlayerFull = joinModalItem.playerCount >= joinModalItem.games.max_players;
+        const isGmFull = joinModalItem.gmCount >= 1;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+            <div className="bg-zinc-900 border-2 border-zinc-700 rounded-2xl w-full max-w-sm p-6 shadow-2xl">
+              <h3 className="text-xl font-black text-zinc-100 mb-2 border-b-2 border-zinc-800 pb-3">
+                <span className="text-red-500">[{joinModalItem.title}]</span> 합류하기
+              </h3>
+              <p className="text-sm text-zinc-400 mb-6 font-bold">{joinModalItem.available_date} 거사에 어떤 역할로 참여하시겠습니까?</p>
+              
+              <div className="flex flex-col gap-3">
+                {/* 플레이어 버튼 (정원 초과 시 비활성화) */}
+                <button 
+                  onClick={() => executeJoin('player')} 
+                  disabled={isPlayerFull}
+                  className={`px-4 py-3 rounded-xl font-black text-sm w-full transition border-2 ${isPlayerFull ? 'bg-zinc-800 border-zinc-700 text-zinc-600 cursor-not-allowed' : 'bg-red-900 border-red-700 text-white hover:bg-red-800'}`}
+                >
+                  {isPlayerFull ? '🚫 플레이어 정원 마감' : '🩸 플레이어로 참여'}
+                </button>
+
+                {/* GM 버튼 (GM 필요 게임일 때만 보이고, 1명 차면 비활성화) */}
+                {joinModalItem.games.needs_gm && (
+                  <button 
+                    onClick={() => executeJoin('gm')} 
+                    disabled={isGmFull}
+                    className={`px-4 py-3 rounded-xl font-black text-sm w-full transition border-2 ${isGmFull ? 'bg-zinc-800 border-zinc-700 text-zinc-600 cursor-not-allowed' : 'bg-purple-900 border-purple-700 text-white hover:bg-purple-800'}`}
+                  >
+                    {isGmFull ? '🚫 GM 배정 마감' : '👑 GM으로 참여'}
+                  </button>
+                )}
+
+                {/* 취소 버튼 (안전한 탈출구) */}
+                <button 
+                  onClick={() => setJoinModalItem(null)} 
+                  className="px-4 py-3 mt-2 bg-zinc-800 border-2 border-zinc-600 text-zinc-300 rounded-xl font-bold text-sm w-full hover:bg-zinc-700 transition"
+                >
+                  ✖ 취소 (닫기)
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -10,9 +10,11 @@ export default function MyPage() {
   const [nicknameInput, setNicknameInput] = useState('');
   
   const [activeMainTab, setActiveMainTab] = useState('schedules'); 
+  // ✨ 추가: 스케줄 내부 서브 탭 (모집 중 / 확정됨)
+  const [scheduleSubTab, setScheduleSubTab] = useState('waiting'); 
   
   const [mySchedules, setMySchedules] = useState([]);
-  const [allSchedules, setAllSchedules] = useState([]); // ✨ 멤버 조회를 위한 전체 스케줄 데이터
+  const [allSchedules, setAllSchedules] = useState([]); 
   const [playedGames, setPlayedGames] = useState([]); 
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState('game'); 
@@ -125,7 +127,10 @@ export default function MyPage() {
     setPlayedGames(data || []);
   };
 
-  const groupedByGame = mySchedules.reduce((acc, curr) => {
+  // ✨ 추가: 선택된 서브 탭에 맞게 데이터 사전 필터링
+  const filteredMySchedules = mySchedules.filter(s => s.status === scheduleSubTab);
+
+  const groupedByGame = filteredMySchedules.reduce((acc, curr) => {
     const gId = curr.games?.id;
     if (!acc[gId]) acc[gId] = { title: curr.games?.title, items: [] };
     acc[gId].items.push(curr);
@@ -134,7 +139,7 @@ export default function MyPage() {
   const gamesArray = Object.values(groupedByGame).sort((a, b) => a.title.localeCompare(b.title));
   gamesArray.forEach(g => g.items.sort((a, b) => new Date(a.available_date) - new Date(b.available_date)));
 
-  const groupedByDate = mySchedules.reduce((acc, curr) => {
+  const groupedByDate = filteredMySchedules.reduce((acc, curr) => {
     const date = curr.available_date;
     if (!acc[date]) acc[date] = { date, items: [] };
     acc[date].items.push(curr);
@@ -166,14 +171,20 @@ export default function MyPage() {
 
       {activeMainTab === 'schedules' && (
         <>
+          {/* ✨ 서브 탭: 모집 중 / 확정됨 분리 UI */}
+          <div className="flex gap-4 mb-6 border-b-2 border-zinc-800 pb-4">
+            <button onClick={() => setScheduleSubTab('waiting')} className={`px-4 py-2 text-lg font-black transition ${scheduleSubTab === 'waiting' ? 'text-red-400 border-b-2 border-red-500' : 'text-zinc-500 hover:text-zinc-300'}`}>⏳ 모집 중</button>
+            <button onClick={() => setScheduleSubTab('confirmed')} className={`px-4 py-2 text-lg font-black transition ${scheduleSubTab === 'confirmed' ? 'text-emerald-400 border-b-2 border-emerald-500' : 'text-zinc-500 hover:text-zinc-300'}`}>🎉 확정됨</button>
+          </div>
+
           <div className="flex gap-3 mb-6">
             <button onClick={() => setViewMode('game')} className={`px-5 py-2.5 rounded-lg font-bold text-sm transition border-2 ${viewMode === 'game' ? 'bg-zinc-700 border-zinc-500 text-white' : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-500 hover:text-zinc-200'}`}>🎮 게임별 보기</button>
             <button onClick={() => setViewMode('date')} className={`px-5 py-2.5 rounded-lg font-bold text-sm transition border-2 ${viewMode === 'date' ? 'bg-zinc-700 border-zinc-500 text-white' : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-500 hover:text-zinc-200'}`}>📅 날짜별 보기</button>
           </div>
 
-          {mySchedules.length === 0 ? (
+          {filteredMySchedules.length === 0 ? (
             <div className="text-center py-24 bg-zinc-900 rounded-2xl border-2 border-dashed border-zinc-700">
-              <p className="text-zinc-400 text-xl font-bold">진행 중인 서약이 없습니다.</p>
+              <p className="text-zinc-400 text-xl font-bold">해당하는 서약이 없습니다.</p>
             </div>
           ) : (
             <div className="space-y-6 pb-24">
@@ -183,7 +194,15 @@ export default function MyPage() {
                   <div key={idx} className="bg-zinc-900 p-6 rounded-2xl border-2 border-zinc-700 shadow-md">
                     <div className="flex items-center gap-3 mb-5 border-b-2 border-zinc-800 pb-4">
                       <input type="checkbox" className="w-6 h-6 accent-red-600 cursor-pointer rounded border-zinc-500" checked={isAllGroupSelected} onChange={() => toggleGroupSelection(group.items)} />
-                      <h2 className="text-2xl font-black text-zinc-100">{viewMode === 'game' ? group.title : group.date}</h2>
+                      <h2 className="text-2xl font-black text-zinc-100">
+                        {viewMode === 'game' ? (
+                          <Link href={`/games/${group.items[0].games?.id}`} className="hover:text-red-400 hover:underline transition">
+                            {group.title}
+                          </Link>
+                        ) : (
+                          group.date
+                        )}
+                      </h2>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {group.items.map(item => (
@@ -193,7 +212,9 @@ export default function MyPage() {
                           label={viewMode === 'game' ? item.available_date : item.games?.title} 
                           isSelected={selectedIds.includes(item.id)} 
                           onToggle={() => toggleItemSelection(item.id)} 
-                          allSchedules={allSchedules} 
+                          allSchedules={allSchedules}
+                          viewMode={viewMode}
+                          refreshData={getUserAndData} 
                         />
                       ))}
                     </div>
@@ -239,8 +260,7 @@ export default function MyPage() {
   );
 }
 
-// 스케줄 탭을 위한 개별 렌더링 컴포넌트
-function RenderRow({ item, label, isSelected, onToggle, allSchedules }) {
+function RenderRow({ item, label, isSelected, onToggle, allSchedules, viewMode, refreshData }) {
   const [showRate, setShowRate] = useState(false);
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('');
@@ -257,7 +277,7 @@ function RenderRow({ item, label, isSelected, onToggle, allSchedules }) {
     setIsSubmitting(true); 
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      const { data: existingReview } = await supabase.from('reviews').select('id').eq('game_id', item.games.id).eq('user_id', user.id).single();
+      const { data: existingReview } = await supabase.from('reviews').select('id').eq('game_id', item.games.id).eq('user_id', user.id).maybeSingle();
       
       let dbError = null;
       if (existingReview) {
@@ -268,11 +288,31 @@ function RenderRow({ item, label, isSelected, onToggle, allSchedules }) {
         dbError = error;
       }
 
-      if (dbError) alert("기록 저장에 실패했습니다: " + dbError.message);
-      else {
-        alert("기록이 각인되었습니다! 🩸");
-        setShowRate(false); 
+      if (dbError) {
+        alert("기록 저장에 실패했습니다: " + dbError.message);
+        return;
       }
+
+      const isGmRole = item.role_wanted === 'gm';
+      const { data: playedCheck } = await supabase.from('played_games')
+        .select('id')
+        .eq('game_id', item.games.id)
+        .eq('user_id', user.id)
+        .eq('is_gm', isGmRole)
+        .maybeSingle();
+
+      if (!playedCheck) {
+        await supabase.from('played_games').insert([{ 
+          user_id: user.id, 
+          game_id: item.games.id, 
+          is_gm: isGmRole 
+        }]);
+      }
+
+      alert("기록이 각인되었습니다! 🩸 (나의 핏빛 기록에도 자동 추가되었습니다.)");
+      setShowRate(false); 
+      if (refreshData) refreshData(); 
+
     } catch (error) {
       alert("통신 중 에러가 발생했습니다.");
     } finally {
@@ -287,7 +327,13 @@ function RenderRow({ item, label, isSelected, onToggle, allSchedules }) {
           <div className="flex justify-between items-start mb-3">
             <div className="flex items-center gap-3">
               <input type="checkbox" className="w-5 h-5 accent-red-600 cursor-pointer flex-shrink-0 rounded border-zinc-500" checked={isSelected} onChange={onToggle} />
-              <span className="font-black text-zinc-100 text-lg">{label}</span>
+              {viewMode === 'date' ? (
+                <Link href={`/games/${item.games?.id}`} className="font-black text-zinc-100 text-lg hover:text-red-400 hover:underline transition">
+                  {label}
+                </Link>
+              ) : (
+                <span className="font-black text-zinc-100 text-lg">{label}</span>
+              )}
             </div>
             <span className={`text-xs font-bold px-2 py-1 rounded-md border whitespace-nowrap ${item.status === 'confirmed' ? 'bg-emerald-950 text-emerald-400 border-emerald-800' : 'bg-zinc-700 text-zinc-300 border-zinc-500'}`}>
               {item.status === 'confirmed' ? '결성 완료 🎉' : '모집 중 ⏳'}
@@ -349,7 +395,7 @@ function RecordCard({ game, togglePlayed }) {
     setIsSubmitting(true); 
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      const { data: existingReview } = await supabase.from('reviews').select('id').eq('game_id', game.id).eq('user_id', user.id).single();
+      const { data: existingReview } = await supabase.from('reviews').select('id').eq('game_id', game.id).eq('user_id', user.id).maybeSingle();
       
       let dbError = null;
       if (existingReview) {
