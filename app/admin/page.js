@@ -262,7 +262,7 @@ export default function AdminPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-bold text-zinc-400 mb-1">예상 플레이 시간 (예: 60~90분)</label>
+                <label className="block text-sm font-bold text-zinc-400 mb-1">예상 플레이 시간 (예: 60~90분) *</label>
                 <input type="text" value={formData.play_time || ''} onChange={e => setFormData({...formData, play_time: e.target.value})} className="w-full bg-zinc-800 border-2 border-zinc-600 p-3 rounded-lg text-zinc-100 outline-none focus:border-purple-600 transition" />
               </div>
 
