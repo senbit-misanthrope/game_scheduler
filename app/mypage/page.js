@@ -12,7 +12,7 @@ export default function MyPage() {
   const [activeMainTab, setActiveMainTab] = useState('schedules'); 
   
   const [mySchedules, setMySchedules] = useState([]);
-  const [allSchedules, setAllSchedules] = useState([]); // 멤버 조회를 위한 전체 스케줄
+  const [allSchedules, setAllSchedules] = useState([]); // ✨ 멤버 조회를 위한 전체 스케줄 데이터
   const [playedGames, setPlayedGames] = useState([]); 
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState('game'); 
@@ -98,7 +98,7 @@ export default function MyPage() {
       if (confirmedItems.length > 0) alert("서약이 파기되었습니다. 멤버 이탈로 인해 해당 모임은 다시 [모집 중] 상태로 강등됩니다.");
       else alert("서약이 파기되었습니다.");
       
-      getUserAndData(); // 전체 동기화를 위해 데이터 다시 불러오기
+      getUserAndData(); 
     }
   };
 
@@ -193,7 +193,7 @@ export default function MyPage() {
                           label={viewMode === 'game' ? item.available_date : item.games?.title} 
                           isSelected={selectedIds.includes(item.id)} 
                           onToggle={() => toggleItemSelection(item.id)} 
-                          allSchedules={allSchedules} // ✨ 멤버 조회를 위해 전체 스케줄 넘겨줌
+                          allSchedules={allSchedules} 
                         />
                       ))}
                     </div>
@@ -246,7 +246,6 @@ function RenderRow({ item, label, isSelected, onToggle, allSchedules }) {
   const [comment, setComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // ✨ 함께하는 멤버 찾기 로직 추가
   const others = allSchedules.filter(s => 
     s.games?.id === item.games?.id && 
     s.available_date === item.available_date && 
@@ -295,7 +294,6 @@ function RenderRow({ item, label, isSelected, onToggle, allSchedules }) {
             </span>
           </div>
           
-          {/* ✨ 함께 신청한 요원 명단 표시 영역 */}
           <div className="ml-8 mb-3 bg-zinc-950 p-2.5 rounded-lg border border-zinc-800">
             <p className="text-[11px] text-zinc-500 font-bold mb-1.5">함께 신청한 요원:</p>
             <div className="flex flex-wrap gap-1.5">
@@ -340,7 +338,6 @@ function RenderRow({ item, label, isSelected, onToggle, allSchedules }) {
   );
 }
 
-// 기록실 탭을 위한 개별 렌더링 컴포넌트
 function RecordCard({ game, togglePlayed }) {
   const [showRate, setShowRate] = useState(false);
   const [rating, setRating] = useState(5);

@@ -3,185 +3,269 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
+import { sendDiscordMessage } from '@/lib/notifications';
 
 export default function StatusPage() {
-  const [schedules, setSchedules] = useState([]);
-  const [currentUser, setCurrentUser] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [statusList, setStatusList] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [mainTab, setMainTab] = useState('waiting'); 
+  const [viewMode, setViewMode] = useState('game'); 
+  const [confirmedFilter, setConfirmedFilter] = useState('my'); 
+  const [user, setUser] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  useEffect(() => { fetchUserAndSchedules(); }, []);
 
-  const fetchData = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      setCurrentUser(user);
-      const { data: profile } = await supabase.from('profiles').select('is_admin').eq('id', user.id).single();
-      if (profile) setIsAdmin(profile.is_admin);
+  const cleanUpConflictingSchedules = async (confirmedDate, confirmedGameId, participantIds) => {
+    const { error } = await supabase.from('schedules').delete()
+      .eq('status', 'waiting').neq('role_wanted', 'gm').in('user_id', participantIds)
+      .or(`available_date.eq.${confirmedDate},game_id.eq.${confirmedGameId}`);
+    if (error) console.error("일정 정리 에러:", error);
+  };
+
+  const fetchUserAndSchedules = async (isRetry = false) => {
+    const { data: { user: sessionUser } } = await supabase.auth.getUser();
+    if (sessionUser) {
+      setUser(sessionUser);
+      const { data: pr } = await supabase.from('profiles').select('is_admin').eq('id', sessionUser.id).single();
+      if (pr?.is_admin) setIsAdmin(true);
     }
 
-    // ✨ status 조건 없이(확정, 대기 모두) 모든 스케줄을 가져옵니다.
-    const { data } = await supabase
-      .from('schedules')
-      .select(`
-        id, available_date, role_wanted, status, user_id,
-        games ( id, title, min_players, max_players, recommended_players, needs_gm ),
-        profiles ( nickname )
-      `)
-      .order('available_date', { ascending: true });
+    const { data: schedulesData } = await supabase.from('schedules').select(`*, games(*)`).order('available_date');
+    const { data: profilesData } = await supabase.from('profiles').select('id, nickname');
+    const profileMap = (profilesData || []).reduce((acc, p) => { acc[p.id] = p.nickname; return acc; }, {});
 
-    setSchedules(data || []);
+    const grouped = (schedulesData || []).reduce((acc, curr) => {
+      const key = `${curr.available_date}_${curr.game_id}`;
+      if (!acc[key]) acc[key] = { ...curr, title: curr.games.title, playerCount: 0, gmCount: 0, playerNames: [], gmNames: [], applicants: [], mySchedule: null };
+      
+      const nickname = profileMap[curr.user_id] || '익명';
+      if (curr.role_wanted === 'gm') { acc[key].gmCount++; acc[key].gmNames.push(nickname); }
+      else { acc[key].playerCount++; acc[key].playerNames.push(nickname); }
+      
+      acc[key].applicants.push({ ...curr, nickname });
+      if (sessionUser && curr.user_id === sessionUser.id) acc[key].mySchedule = curr;
+      return acc;
+    }, {});
+
+    const groupArray = Object.values(grouped);
+
+    if (!isRetry) {
+      for (const g of groupArray) {
+        if (g.status === 'waiting' && g.playerCount >= g.games.max_players) {
+          if (g.games.needs_gm && g.gmCount === 0) continue;
+          await supabase.from('schedules').update({ status: 'confirmed' }).eq('available_date', g.available_date).eq('game_id', g.game_id);
+          const pIds = g.applicants.map(a => a.user_id);
+          await cleanUpConflictingSchedules(g.available_date, g.game_id, pIds);
+          sendDiscordMessage(`🎉 **모집 확정 (풀파티)!**\n게임: [${g.title}]\n날짜: ${g.available_date}\n참여자: ${[...g.playerNames, ...g.gmNames].join(', ')}`);
+          return fetchUserAndSchedules(true);
+        }
+      }
+    }
+
+    setStatusList(groupArray);
     setLoading(false);
   };
 
-  // 모임 강제 확정 로직
-  const handleForceConfirm = async (gameId, date) => {
-    if (!window.confirm('이 모임을 강제로 결성 확정하시겠습니까?')) return;
+  const handleQuickJoin = async (item) => {
+    if (!user) return alert("로그인 필요");
+    
+    // GM이 필요 없는 게임은 무조건 player로만 신청되도록 안전장치 유지
+    let role = 'player';
+    if (item.games.needs_gm) {
+      const wantPlayer = window.confirm(`[${item.title}]\n'확인'을 누르면 [플레이어]로, '취소'를 누르면 [GM]으로 신청합니다.`);
+      if (!wantPlayer) role = 'gm';
+    }
 
-    const { error } = await supabase
-      .from('schedules')
-      .update({ status: 'confirmed' })
-      .eq('game_id', gameId)
-      .eq('available_date', date);
+    const { error } = await supabase.from('schedules').insert([{ user_id: user.id, game_id: item.game_id, available_date: item.available_date, role_wanted: role }]);
+    if (!error) {
+      const newPlayerCount = item.playerCount + (role === 'player' ? 1 : 0);
+      const newGmCount = item.gmCount + (role === 'gm' ? 1 : 0);
+      
+      const { data: p } = await supabase.from('profiles').select('nickname');
+      const pMap = (p || []).reduce((acc, curr) => { acc[curr.id] = curr.nickname; return acc; }, {});
+      const currentNames = [...item.playerNames, ...item.gmNames, pMap[user.id] || '본인'];
 
-    if (error) alert("확정 실패: " + error.message);
-    else {
-      alert("거사가 확정되었습니다! 🩸");
-      fetchData(); // 화면 새로고침
+      if (newPlayerCount === item.games.max_players) {
+        if (item.games.needs_gm && newGmCount === 0) sendDiscordMessage(`🚨 **최대 인원 도달 (GM 구인 중)!**\n게임: [${item.title}]\n날짜: ${item.available_date}\n플레이어 인원이 꽉 찼지만 진행자(GM)가 없어 확정되지 않았습니다!\n현재 명단: ${currentNames.join(', ')}`);
+      } else if (newPlayerCount === item.games.recommended_players) {
+        if (item.games.needs_gm && newGmCount === 0) sendDiscordMessage(`🔥 **추천 인원 도달 (GM 구인 중)!**\n게임: [${item.title}]\n날짜: ${item.available_date}\n추천 인원에 도달했지만 진행자(GM)가 필요합니다!\n현재 명단: ${currentNames.join(', ')}`);
+        else sendDiscordMessage(`🔥 **추천 인원 도달!**\n게임: [${item.title}]\n날짜: ${item.available_date}\n현황판에서 '진행 찬성'을 누르면 확정됩니다!\n현재 명단: ${currentNames.join(', ')}`);
+      }
+      fetchUserAndSchedules();
     }
   };
 
-  // 현황판에서 바로 신청 취소하기
-  const handleCancel = async (scheduleId, gameId, date, isConfirmed) => {
-    if (!window.confirm('신청을 취소하시겠습니까?')) return;
-
-    await supabase.from('schedules').delete().eq('id', scheduleId);
+  const toggleReady = async (item) => {
+    const newReady = !item.mySchedule.is_ready;
+    await supabase.from('schedules').update({ is_ready: newReady }).eq('id', item.mySchedule.id);
     
-    // 확정된 방에서 나갔다면 남은 사람들을 다시 waiting으로 강등
-    if (isConfirmed) {
-      await supabase.from('schedules')
-        .update({ status: 'waiting' })
-        .eq('game_id', gameId)
-        .eq('available_date', date)
-        .eq('status', 'confirmed');
-      alert("취소되었습니다. 멤버 이탈로 방이 다시 [모집 중]으로 변경됩니다.");
+    const readyCount = item.applicants.filter(a => (a.id === item.mySchedule.id ? newReady : a.is_ready)).length;
+    const totalApplicants = item.applicants.length;
+    
+    if (item.playerCount >= (item.games.min_players || 1) && readyCount === totalApplicants) {
+      if (item.games.needs_gm && item.gmCount === 0) return alert("GM이 필요하여 확정할 수 없습니다.");
+      
+      await supabase.from('schedules').update({ status: 'confirmed' }).eq('available_date', item.available_date).eq('game_id', item.game_id);
+      const pIds = item.applicants.map(a => a.user_id);
+      await cleanUpConflictingSchedules(item.available_date, item.game_id, pIds);
+      sendDiscordMessage(`✅ **만장일치 확정!**\n게임: [${item.title}]\n날짜: ${item.available_date}\n참여자: ${item.applicants.map(a => a.nickname).join(', ')}`);
+      alert("만장일치로 거사가 확정되었습니다! [🎉 확정됨] 탭에서 확인하세요.");
+    }
+    fetchUserAndSchedules();
+  };
+
+  const forceConfirm = async (date, gameId, title, applicants) => {
+    if (!window.confirm("이 모임을 강제로 확정하시겠습니까?")) return;
+    await supabase.from('schedules').update({ status: 'confirmed' }).eq('available_date', date).eq('game_id', gameId);
+    const pIds = applicants.map(a => a.user_id);
+    await cleanUpConflictingSchedules(date, gameId, pIds);
+    sendDiscordMessage(`👑 **수동 확정!**\n관리자가 [${title}] 모임을 확정하였습니다.\n날짜: ${date}`);
+    alert("거사가 강제 확정되었습니다! [🎉 확정됨] 탭에서 확인하세요.");
+    fetchUserAndSchedules();
+  };
+
+  const cancelConfirm = async (date, gameId) => {
+    if (!window.confirm("확정을 취소하시겠습니까?")) return;
+    await supabase.from('schedules').update({ status: 'waiting', is_ready: false }).eq('available_date', date).eq('game_id', gameId);
+    alert("확정이 취소되어 다시 [⏳ 모집 중] 탭으로 이동합니다.");
+    fetchUserAndSchedules();
+  };
+
+  const getDisplayList = () => {
+    if (mainTab === 'waiting') return statusList.filter(s => s.status === 'waiting');
+    let confirmed = statusList.filter(s => s.status === 'confirmed');
+    if (confirmedFilter === 'my') confirmed = confirmed.filter(s => s.mySchedule !== null);
+    return confirmed;
+  };
+
+  const getGroupedData = (list, mode) => {
+    if (mode === 'game') {
+      const grouped = list.reduce((acc, curr) => {
+        if (!acc[curr.game_id]) acc[curr.game_id] = { title: curr.title, schedules: [] };
+        acc[curr.game_id].schedules.push(curr);
+        return acc;
+      }, {});
+      const arr = Object.values(grouped).sort((a, b) => a.title.localeCompare(b.title));
+      arr.forEach(g => g.schedules.sort((a, b) => new Date(a.available_date) - new Date(b.available_date)));
+      return arr;
     } else {
-      alert("취소되었습니다.");
+      const grouped = list.reduce((acc, curr) => {
+        if (!acc[curr.available_date]) acc[curr.available_date] = { date: curr.available_date, games: [] };
+        acc[curr.available_date].games.push(curr);
+        return acc;
+      }, {});
+      const arr = Object.values(grouped).sort((a, b) => new Date(a.date) - new Date(b.date));
+      arr.forEach(d => d.games.sort((a, b) => a.title.localeCompare(b.title)));
+      return arr;
     }
-    fetchData();
   };
 
-  // 데이터를 날짜 > 게임별로 그룹화
-  const grouped = schedules.reduce((acc, curr) => {
-    if (!curr.games) return acc;
-    const date = curr.available_date;
-    const gId = curr.games.id;
-    
-    if (!acc[date]) acc[date] = {};
-    if (!acc[date][gId]) acc[date][gId] = { game: curr.games, items: [], status: 'waiting' };
-    
-    // 하나라도 확정이면 이 방은 확정 상태
-    if (curr.status === 'confirmed') acc[date][gId].status = 'confirmed';
-    acc[date][gId].items.push(curr);
-    
-    return acc;
-  }, {});
+  const displayData = getGroupedData(getDisplayList(), viewMode);
 
-  if (loading) return <div className="p-8 text-center text-lg font-bold text-zinc-400 bg-zinc-950 min-h-screen">현황을 파악하는 중...</div>;
+  if (loading) return <div className="p-8 text-center text-lg font-bold text-zinc-400 bg-zinc-950 min-h-screen">현황을 불러오는 중...</div>;
 
   return (
-    <div className="p-4 md:p-8 max-w-6xl mx-auto bg-zinc-950 min-h-screen text-zinc-200 font-sans selection:bg-red-900">
-      <div className="flex justify-between items-center mb-10 border-b-2 border-zinc-800 pb-4">
-        <h1 className="text-3xl font-black text-zinc-100"> Deck&<span className="text-red-600">Dice</span> 현황판 📊</h1>
+    <div className="p-4 md:p-8 max-w-5xl mx-auto bg-zinc-950 min-h-screen text-zinc-200 font-sans selection:bg-red-900">
+      <div className="flex justify-between items-center mb-8 border-b-2 border-zinc-800 pb-4">
+        <h1 className="text-3xl font-black text-zinc-100">현황판 📊</h1>
         <Link href="/" className="px-5 py-2 bg-zinc-800 border-2 border-zinc-600 text-zinc-200 rounded-lg font-bold hover:bg-zinc-700 transition">대시보드로</Link>
       </div>
 
-      {Object.keys(grouped).length === 0 ? (
-        <div className="text-center py-24 bg-zinc-900 rounded-3xl border-2 border-dashed border-zinc-700">
-          <p className="text-zinc-500 text-xl font-bold">현재 예정된 모임이 없습니다.</p>
+      <div className="flex gap-4 mb-6">
+        <button onClick={() => setMainTab('waiting')} className={`flex-1 py-3 text-lg font-extrabold rounded-t-xl border-b-4 transition ${mainTab === 'waiting' ? 'border-red-600 text-red-400 bg-zinc-900' : 'border-zinc-800 text-zinc-500 hover:bg-zinc-900'}`}>⏳ 모집 중</button>
+        <button onClick={() => setMainTab('confirmed')} className={`flex-1 py-3 text-lg font-extrabold rounded-t-xl border-b-4 transition ${mainTab === 'confirmed' ? 'border-emerald-500 text-emerald-400 bg-zinc-900' : 'border-zinc-800 text-zinc-500 hover:bg-zinc-900'}`}>🎉 확정됨</button>
+      </div>
+
+      <div className="flex justify-between items-center mb-8 bg-zinc-900 p-4 rounded-xl border-2 border-zinc-800 shadow-sm">
+        <div className="flex gap-2">
+          <button onClick={() => setViewMode('game')} className={`px-4 py-1.5 rounded-lg text-sm font-bold border-2 transition ${viewMode === 'game' ? 'bg-zinc-700 border-zinc-500 text-white' : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700'}`}>🎮 게임별</button>
+          <button onClick={() => setViewMode('date')} className={`px-4 py-1.5 rounded-lg text-sm font-bold border-2 transition ${viewMode === 'date' ? 'bg-zinc-700 border-zinc-500 text-white' : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700'}`}>📅 날짜별</button>
         </div>
-      ) : (
-        <div className="space-y-12">
-          {Object.keys(grouped).sort().map(date => (
-            <div key={date}>
-              <h2 className="text-2xl font-black text-zinc-100 mb-6 flex items-center gap-3">
-                <span className="bg-red-900 text-white px-4 py-1.5 rounded-lg text-lg">📅 {date}</span>
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {Object.values(grouped[date]).map((group, idx) => {
-                  const players = group.items.filter(i => i.role_wanted === 'player');
-                  const gms = group.items.filter(i => i.role_wanted === 'gm');
-                  const mySchedule = group.items.find(i => i.user_id === currentUser?.id);
-                  const isConfirmed = group.status === 'confirmed';
-                  
-                  // GM 또는 관리자 권한 확인
-                  const canForceConfirm = isAdmin || mySchedule?.role_wanted === 'gm';
+        {mainTab === 'confirmed' && (
+          <div className="flex gap-1">
+            <button onClick={() => setConfirmedFilter('my')} className={`px-4 py-1.5 rounded-lg text-sm font-bold border-2 transition ${confirmedFilter === 'my' ? 'bg-emerald-950 border-emerald-700 text-emerald-400' : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700'}`}>👤 내 일정</button>
+            <button onClick={() => setConfirmedFilter('all')} className={`px-4 py-1.5 rounded-lg text-sm font-bold border-2 transition ${confirmedFilter === 'all' ? 'bg-zinc-700 border-zinc-500 text-white' : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700'}`}>🌍 전체</button>
+          </div>
+        )}
+      </div>
+
+      <div className="grid gap-6">
+        {displayData.length === 0 ? (
+          <div className="text-center py-20 text-zinc-500 font-bold border-2 border-dashed border-zinc-800 rounded-2xl bg-zinc-900">
+            해당 조건의 내역이 없습니다.
+          </div>
+        ) : (
+          displayData.map((section, idx) => (
+            <div key={idx} className="bg-zinc-900 p-6 rounded-2xl border-2 border-zinc-700 shadow-md">
+              <h2 className="text-2xl font-black mb-5 border-b-2 border-zinc-800 pb-3 text-zinc-100">{viewMode === 'game' ? section.title : section.date}</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {(viewMode === 'game' ? section.schedules : section.games).map((item, sIdx) => {
+                  const totalApplicants = item.applicants.length; 
+                  const readyCount = item.applicants.filter(a => a.is_ready).length;
+                  const minPlayers = item.games.min_players || 1;
+                  const hasRequiredGm = item.games.needs_gm ? item.gmCount > 0 : true;
+                  const canConsensus = item.playerCount >= minPlayers && hasRequiredGm;
 
                   return (
-                    <div key={idx} className={`bg-zinc-900 p-6 rounded-3xl shadow-md border-2 transition relative ${mySchedule ? 'border-red-800' : 'border-zinc-700 hover:border-zinc-500'}`}>
-                      {isConfirmed && <div className="absolute -top-3 -right-3 bg-emerald-600 text-white font-black text-xs px-3 py-1.5 rounded-full shadow-lg border-2 border-zinc-900">결성 완료 🎉</div>}
-                      
-                      <div className="mb-4">
-                        <Link href={`/games/${group.game.id}`} className="text-xl font-black text-zinc-100 hover:text-red-400 transition">{group.game.title}</Link>
-                        <div className="flex gap-2 mt-2 text-xs font-bold text-zinc-400">
-                          <span className="bg-zinc-800 border border-zinc-600 px-2 py-1 rounded">👥 {players.length} / {group.game.max_players}명</span>
-                          {group.game.needs_gm && <span className={`border px-2 py-1 rounded ${gms.length > 0 ? 'bg-purple-900 text-purple-300 border-purple-700' : 'bg-zinc-800 border-zinc-600'}`}>👑 GM: {gms.length}명</span>}
-                        </div>
-                      </div>
-
-                      <div className="space-y-3 mb-6 bg-zinc-950 p-3 rounded-xl border border-zinc-800">
-                        <div>
-                          <p className="text-xs text-zinc-500 font-bold mb-1">참가자 명단:</p>
-                          <div className="flex flex-wrap gap-1">
-                            {players.length > 0 ? players.map(p => (
-                              <span key={p.id} className={`text-xs px-2 py-1 rounded border ${p.user_id === currentUser?.id ? 'bg-red-950 text-red-400 border-red-900' : 'bg-zinc-800 text-zinc-300 border-zinc-700'}`}>
-                                {p.profiles?.nickname || '익명'}
-                              </span>
-                            )) : <span className="text-xs text-zinc-600">아직 없습니다.</span>}
-                          </div>
-                        </div>
-                        {group.game.needs_gm && (
-                          <div>
-                            <p className="text-xs text-zinc-500 font-bold mb-1">진행자(GM):</p>
-                            <div className="flex flex-wrap gap-1">
-                              {gms.length > 0 ? gms.map(g => (
-                                <span key={g.id} className={`text-xs px-2 py-1 rounded border ${g.user_id === currentUser?.id ? 'bg-purple-950 text-purple-400 border-purple-900' : 'bg-purple-900 text-purple-200 border-purple-700'}`}>
-                                  {g.profiles?.nickname || '익명'}
-                                </span>
-                              )) : <span className="text-xs text-zinc-600">구인 중입니다.</span>}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="flex gap-2 mt-auto">
-                        {mySchedule ? (
-                          <button onClick={() => handleCancel(mySchedule.id, group.game.id, date, isConfirmed)} className="w-full py-2.5 bg-zinc-800 border-2 border-red-900 text-red-500 rounded-xl font-bold hover:bg-red-950 transition text-sm">
-                            참여 취소하기
-                          </button>
-                        ) : (
-                          <Link href="/" className="w-full text-center py-2.5 bg-zinc-800 border-2 border-zinc-600 text-zinc-300 rounded-xl font-bold hover:bg-zinc-700 transition text-sm">
-                            대시보드에서 합류
+                    <div key={sIdx} className={`p-6 rounded-xl border-2 transition flex flex-col justify-between shadow-sm ${item.status === 'confirmed' ? 'bg-emerald-950/20 border-emerald-900/50' : 'bg-zinc-950 border-zinc-700'}`}>
+                      <div>
+                        <div className="flex justify-between items-start mb-4">
+                          <Link href={`/games/${item.game_id}`} className="font-black text-xl text-zinc-100 hover:text-red-400 hover:underline transition">
+                            {viewMode === 'game' ? item.available_date : item.title}
                           </Link>
-                        )}
+                          {item.status === 'confirmed' && <span className="text-emerald-400 text-xs font-bold bg-emerald-950/50 border border-emerald-900/50 px-3 py-1.5 rounded-lg shadow-sm">🎉 확정</span>}
+                        </div>
+                        <div className="text-sm bg-zinc-900 p-4 rounded-xl mb-5 border border-zinc-800">
+                          <p className="text-blue-400 font-bold mb-2">👤 플레이어: {item.playerNames.join(', ')} ({item.playerCount}/{item.games.recommended_players})</p>
+                          {item.games.needs_gm && (
+                            <p className="text-purple-400 font-bold">👑 GM: {item.gmNames.length > 0 ? item.gmNames.join(', ') : '구인중 🚨'}</p>
+                          )}
+                        </div>
                       </div>
 
-                      {/* GM이거나 관리자일 때 강제 확정 버튼 표시 (모집 중일 때만) */}
-                      {!isConfirmed && canForceConfirm && (
-                        <button onClick={() => handleForceConfirm(group.game.id, date)} className="w-full mt-2 py-2 bg-purple-900 border-2 border-purple-700 text-white rounded-xl font-black shadow-lg hover:bg-purple-800 transition text-sm">
-                          이 모임 강제 확정 👑
-                        </button>
-                      )}
+                      <div className="flex flex-col gap-2 mt-auto">
+                        {item.status === 'waiting' && (
+                          item.mySchedule ? (
+                            <>
+                              {canConsensus ? (
+                                <>
+                                  <p className="text-xs font-bold text-amber-500 mb-1 text-center">🔥 찬성 시 만장일치로 확정됩니다. ({readyCount}/{totalApplicants})</p>
+                                  <button onClick={() => toggleReady(item)} className={`px-4 py-3 rounded-lg font-black text-sm w-full transition border-2 ${item.mySchedule.is_ready ? 'bg-amber-600 border-amber-600 text-white' : 'bg-zinc-800 border-amber-600 text-amber-500 hover:bg-amber-900/30'}`}>
+                                    {item.mySchedule.is_ready ? '✓ 찬성 취소' : '👉 진행 찬성하기!'}
+                                  </button>
+                                </>
+                              ) : (
+                                <button disabled className="px-4 py-3 bg-zinc-800 border-2 border-zinc-700 text-zinc-500 rounded-lg font-bold text-sm w-full cursor-not-allowed">
+                                  {!hasRequiredGm ? `⏳ 진행자(GM) 구인 중 (찬성 대기)` : `⏳ 플레이어 부족 (${item.playerCount}/${minPlayers}명)`}
+                                </button>
+                              )}
+                            </>
+                          ) : (
+                            <button onClick={() => handleQuickJoin(item)} className="px-4 py-3 bg-red-700 border-2 border-red-600 text-white rounded-lg font-black text-sm hover:bg-red-600 w-full shadow-md transition">
+                              ➕ 나도 참여하기
+                            </button>
+                          )
+                        )}
+                        {/* ✨ 오직 최고 관리자(isAdmin)만 강제 확정/취소 가능하도록 복구 */}
+                        {isAdmin && (
+                          <div className="flex gap-2 mt-3 pt-3 border-t-2 border-zinc-800">
+                            {item.status === 'waiting' ? (
+                              <button onClick={() => forceConfirm(item.available_date, item.game_id, item.title, item.applicants)} className="px-3 py-2 bg-zinc-800 border-2 border-zinc-600 text-zinc-300 rounded-lg text-xs font-bold flex-1 hover:bg-zinc-700">👑 강제 확정</button>
+                            ) : (
+                              <button onClick={() => cancelConfirm(item.available_date, item.game_id)} className="px-3 py-2 bg-zinc-900 border-2 border-red-900/50 text-red-500 rounded-lg text-xs font-bold flex-1 hover:bg-red-950/30">👑 확정 취소</button>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
               </div>
             </div>
-          ))}
-        </div>
-      )}
+          ))
+        )}
+      </div>
     </div>
   );
 }
