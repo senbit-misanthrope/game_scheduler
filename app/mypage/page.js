@@ -11,35 +11,44 @@ export default function MyPage() {
   
   const [activeMainTab, setActiveMainTab] = useState('schedules'); 
   
-  const [schedules, setSchedules] = useState([]);
+  const [mySchedules, setMySchedules] = useState([]);
+  const [allSchedules, setAllSchedules] = useState([]); // 멤버 조회를 위한 전체 스케줄
   const [playedGames, setPlayedGames] = useState([]); 
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState('game'); 
   const [selectedIds, setSelectedIds] = useState([]); 
 
   useEffect(() => {
-    const getUserAndData = async () => {
-      const { data: { user: sessionUser } } = await supabase.auth.getUser();
-      if (sessionUser) {
-        setUser(sessionUser);
-        
-        const [profileRes, scheduleRes, playedRes] = await Promise.all([
-          supabase.from('profiles').select('*').eq('id', sessionUser.id).single(),
-          supabase.from('schedules').select(`id, available_date, role_wanted, status, games ( id, title )`).eq('user_id', sessionUser.id),
-          supabase.from('played_games').select(`id, is_gm, games (id, title)`).eq('user_id', sessionUser.id)
-        ]);
-
-        if (profileRes.data) {
-          setProfile(profileRes.data);
-          setNicknameInput(profileRes.data.nickname || '');
-        }
-        setSchedules(scheduleRes.data || []);
-        setPlayedGames(playedRes.data || []);
-      }
-      setLoading(false);
-    };
     getUserAndData();
   }, []);
+
+  const getUserAndData = async () => {
+    const { data: { user: sessionUser } } = await supabase.auth.getUser();
+    if (sessionUser) {
+      setUser(sessionUser);
+      
+      const [profileRes, scheduleRes, playedRes] = await Promise.all([
+        supabase.from('profiles').select('*').eq('id', sessionUser.id).single(),
+        supabase.from('schedules').select(`
+          id, available_date, role_wanted, status, user_id,
+          games ( id, title ),
+          profiles ( nickname )
+        `),
+        supabase.from('played_games').select(`id, is_gm, games (id, title)`).eq('user_id', sessionUser.id)
+      ]);
+
+      if (profileRes.data) {
+        setProfile(profileRes.data);
+        setNicknameInput(profileRes.data.nickname || '');
+      }
+      
+      const allData = scheduleRes.data || [];
+      setAllSchedules(allData);
+      setMySchedules(allData.filter(s => s.user_id === sessionUser.id));
+      setPlayedGames(playedRes.data || []);
+    }
+    setLoading(false);
+  };
 
   const handleSaveNickname = async () => {
     if (!nicknameInput.trim()) return alert("호칭을 입력해주세요!");
@@ -69,37 +78,32 @@ export default function MyPage() {
   const handleBatchCancel = async () => {
     if (!window.confirm(`선택한 ${selectedIds.length}개의 서약을 파기하시겠습니까?`)) return;
     
-    // ✨ 1. 파기하려는 스케줄의 상태와 정보 미리 확인
-    const { data: itemsToDelete } = await supabase.from('schedules').select('game_id, available_date, status').in('id', selectedIds);
-
-    // 2. 내 스케줄 파기 (삭제)
+    const itemsToDelete = mySchedules.filter(s => selectedIds.includes(s.id));
     const { error } = await supabase.from('schedules').delete().in('id', selectedIds);
     
     if (!error) {
-      setSchedules(schedules.filter(s => !selectedIds.includes(s.id)));
+      const newMySchedules = mySchedules.filter(s => !selectedIds.includes(s.id));
+      setMySchedules(newMySchedules);
       setSelectedIds([]); 
 
-      // ✨ 3. 확정(confirmed) 상태였던 모임이 깨졌다면, 남은 사람들을 waiting으로 되돌림
-      const confirmedItems = itemsToDelete?.filter(item => item.status === 'confirmed') || [];
+      const confirmedItems = itemsToDelete.filter(item => item.status === 'confirmed');
       for (const item of confirmedItems) {
          await supabase.from('schedules')
            .update({ status: 'waiting' })
-           .eq('game_id', item.game_id)
+           .eq('game_id', item.games.id)
            .eq('available_date', item.available_date)
            .eq('status', 'confirmed');
       }
 
-      if (confirmedItems.length > 0) {
-        alert("서약이 파기되었습니다. 멤버 이탈로 인해 해당 모임은 다시 [재모집] 상태로 강등됩니다.");
-      } else {
-        alert("서약이 파기되었습니다.");
-      }
+      if (confirmedItems.length > 0) alert("서약이 파기되었습니다. 멤버 이탈로 인해 해당 모임은 다시 [모집 중] 상태로 강등됩니다.");
+      else alert("서약이 파기되었습니다.");
+      
+      getUserAndData(); // 전체 동기화를 위해 데이터 다시 불러오기
     }
   };
 
   const togglePlayed = async (gameId, isGmMode) => {
     if (!user) return;
-    
     const gameRecords = playedGames.filter(pg => pg.games?.id === gameId);
     const hasPlayed = gameRecords.some(pg => pg.is_gm === false);
     const targetRecord = gameRecords.find(pg => pg.is_gm === isGmMode);
@@ -113,9 +117,7 @@ export default function MyPage() {
       await supabase.from('played_games').delete().in('id', idsToDelete);
     } else {
       const insertData = [{ user_id: user.id, game_id: gameId, is_gm: isGmMode }];
-      if (isGmMode === true && !hasPlayed) {
-        insertData.push({ user_id: user.id, game_id: gameId, is_gm: false });
-      }
+      if (isGmMode === true && !hasPlayed) insertData.push({ user_id: user.id, game_id: gameId, is_gm: false });
       await supabase.from('played_games').insert(insertData);
     }
     
@@ -123,7 +125,7 @@ export default function MyPage() {
     setPlayedGames(data || []);
   };
 
-  const groupedByGame = schedules.reduce((acc, curr) => {
+  const groupedByGame = mySchedules.reduce((acc, curr) => {
     const gId = curr.games?.id;
     if (!acc[gId]) acc[gId] = { title: curr.games?.title, items: [] };
     acc[gId].items.push(curr);
@@ -132,7 +134,7 @@ export default function MyPage() {
   const gamesArray = Object.values(groupedByGame).sort((a, b) => a.title.localeCompare(b.title));
   gamesArray.forEach(g => g.items.sort((a, b) => new Date(a.available_date) - new Date(b.available_date)));
 
-  const groupedByDate = schedules.reduce((acc, curr) => {
+  const groupedByDate = mySchedules.reduce((acc, curr) => {
     const date = curr.available_date;
     if (!acc[date]) acc[date] = { date, items: [] };
     acc[date].items.push(curr);
@@ -151,7 +153,7 @@ export default function MyPage() {
 
       <div className="bg-zinc-900 p-6 rounded-2xl border-2 border-zinc-700 mb-8 flex flex-col sm:flex-row sm:items-end gap-4 shadow-md">
         <div className="flex-1">
-          <label className="block text-sm font-bold text-zinc-300 mb-2">아지트에서 사용할 호칭</label>
+          <label className="block text-sm font-bold text-zinc-300 mb-2">아지트에서 사용할 호칭 (예: 쎈빛)</label>
           <input type="text" value={nicknameInput} onChange={(e) => setNicknameInput(e.target.value)} placeholder="호칭을 입력하세요" className="w-full bg-zinc-800 border-2 border-zinc-600 p-3 rounded-xl focus:border-red-600 outline-none text-lg text-zinc-100 transition" />
         </div>
         <button onClick={handleSaveNickname} className="w-full sm:w-auto px-8 py-3 bg-zinc-800 border-2 border-red-700 text-red-400 font-black rounded-xl hover:bg-red-900 hover:text-white transition shadow-sm">호칭 각인</button>
@@ -169,7 +171,7 @@ export default function MyPage() {
             <button onClick={() => setViewMode('date')} className={`px-5 py-2.5 rounded-lg font-bold text-sm transition border-2 ${viewMode === 'date' ? 'bg-zinc-700 border-zinc-500 text-white' : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-500 hover:text-zinc-200'}`}>📅 날짜별 보기</button>
           </div>
 
-          {schedules.length === 0 ? (
+          {mySchedules.length === 0 ? (
             <div className="text-center py-24 bg-zinc-900 rounded-2xl border-2 border-dashed border-zinc-700">
               <p className="text-zinc-400 text-xl font-bold">진행 중인 서약이 없습니다.</p>
             </div>
@@ -185,7 +187,14 @@ export default function MyPage() {
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {group.items.map(item => (
-                        <RenderRow key={item.id} item={item} label={viewMode === 'game' ? item.available_date : item.games?.title} isSelected={selectedIds.includes(item.id)} onToggle={() => toggleItemSelection(item.id)} />
+                        <RenderRow 
+                          key={item.id} 
+                          item={item} 
+                          label={viewMode === 'game' ? item.available_date : item.games?.title} 
+                          isSelected={selectedIds.includes(item.id)} 
+                          onToggle={() => toggleItemSelection(item.id)} 
+                          allSchedules={allSchedules} // ✨ 멤버 조회를 위해 전체 스케줄 넘겨줌
+                        />
                       ))}
                     </div>
                   </div>
@@ -204,7 +213,6 @@ export default function MyPage() {
         </>
       )}
 
-      {/* ✨ 나의 핏빛 기록 탭에 리뷰 컴포넌트(RecordCard) 적용 */}
       {activeMainTab === 'records' && (
         <div className="bg-zinc-900 p-6 md:p-8 rounded-3xl border-2 border-zinc-700 min-h-[400px]">
           {playedGames.length === 0 ? (
@@ -231,7 +239,108 @@ export default function MyPage() {
   );
 }
 
-// ✨ 기록실 탭을 위한 개별 게임 카드 컴포넌트 (리뷰 기능 포함)
+// 스케줄 탭을 위한 개별 렌더링 컴포넌트
+function RenderRow({ item, label, isSelected, onToggle, allSchedules }) {
+  const [showRate, setShowRate] = useState(false);
+  const [rating, setRating] = useState(5);
+  const [comment, setComment] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // ✨ 함께하는 멤버 찾기 로직 추가
+  const others = allSchedules.filter(s => 
+    s.games?.id === item.games?.id && 
+    s.available_date === item.available_date && 
+    s.user_id !== item.user_id
+  );
+
+  const submitReview = async () => {
+    if (!comment.trim()) return alert("기록을 남겨주세요!");
+    setIsSubmitting(true); 
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data: existingReview } = await supabase.from('reviews').select('id').eq('game_id', item.games.id).eq('user_id', user.id).single();
+      
+      let dbError = null;
+      if (existingReview) {
+        const { error } = await supabase.from('reviews').update({ rating, comment }).eq('id', existingReview.id);
+        dbError = error;
+      } else {
+        const { error } = await supabase.from('reviews').insert([{ game_id: item.games.id, user_id: user.id, rating, comment }]);
+        dbError = error;
+      }
+
+      if (dbError) alert("기록 저장에 실패했습니다: " + dbError.message);
+      else {
+        alert("기록이 각인되었습니다! 🩸");
+        setShowRate(false); 
+      }
+    } catch (error) {
+      alert("통신 중 에러가 발생했습니다.");
+    } finally {
+      setIsSubmitting(false); 
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-2 relative h-full">
+      <label className={`flex flex-col justify-between p-4 rounded-xl border-2 transition cursor-pointer h-full ${isSelected ? 'bg-zinc-800 border-red-600' : 'bg-zinc-800 border-zinc-600 hover:border-zinc-400'}`}>
+        <div>
+          <div className="flex justify-between items-start mb-3">
+            <div className="flex items-center gap-3">
+              <input type="checkbox" className="w-5 h-5 accent-red-600 cursor-pointer flex-shrink-0 rounded border-zinc-500" checked={isSelected} onChange={onToggle} />
+              <span className="font-black text-zinc-100 text-lg">{label}</span>
+            </div>
+            <span className={`text-xs font-bold px-2 py-1 rounded-md border whitespace-nowrap ${item.status === 'confirmed' ? 'bg-emerald-950 text-emerald-400 border-emerald-800' : 'bg-zinc-700 text-zinc-300 border-zinc-500'}`}>
+              {item.status === 'confirmed' ? '결성 완료 🎉' : '모집 중 ⏳'}
+            </span>
+          </div>
+          
+          {/* ✨ 함께 신청한 요원 명단 표시 영역 */}
+          <div className="ml-8 mb-3 bg-zinc-950 p-2.5 rounded-lg border border-zinc-800">
+            <p className="text-[11px] text-zinc-500 font-bold mb-1.5">함께 신청한 요원:</p>
+            <div className="flex flex-wrap gap-1.5">
+              <span className={`text-xs px-2 py-0.5 rounded border ${item.role_wanted === 'gm' ? 'bg-purple-950 text-purple-400 border-purple-900' : 'bg-red-950 text-red-400 border-red-900'}`}>
+                나({item.role_wanted === 'gm' ? 'GM' : '일반'})
+              </span>
+              {others.length > 0 ? others.map((other, i) => (
+                <span key={i} className={`text-xs px-2 py-0.5 rounded border ${other.role_wanted === 'gm' ? 'bg-purple-900 text-purple-200 border-purple-700' : 'bg-zinc-800 text-zinc-300 border-zinc-600'}`}>
+                  {other.profiles?.nickname || '익명'}({other.role_wanted === 'gm' ? 'GM' : '일반'})
+                </span>
+              )) : <span className="text-xs text-zinc-600 py-0.5">아직 혼자입니다.</span>}
+            </div>
+          </div>
+        </div>
+
+        {item.status === 'confirmed' && (
+          <div className="ml-8 mt-auto flex justify-end">
+            <button onClick={(e) => { e.preventDefault(); setShowRate(!showRate); }} className="text-xs text-amber-400 font-bold hover:text-amber-300 transition bg-zinc-700 px-3 py-1.5 rounded-md border border-zinc-500">
+              {showRate ? '[접기]' : '⭐ 평점 남기기'}
+            </button>
+          </div>
+        )}
+      </label>
+
+      {showRate && (
+        <div className="p-4 bg-zinc-800 border-2 border-zinc-600 rounded-xl mt-1 ml-8 space-y-4 shadow-xl relative z-10">
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-bold text-zinc-300">별점:</span>
+            <div className="flex gap-1">
+              {[1, 2, 3, 4, 5].map(num => (
+                <button key={num} onClick={() => setRating(num)} className={`text-2xl transition hover:scale-110 drop-shadow-md ${rating >= num ? 'text-amber-400' : 'text-zinc-600'}`}>★</button>
+              ))}
+            </div>
+          </div>
+          <textarea placeholder="이 모임은 어땠나요? 진실을 기록해주세요..." className="w-full p-3 text-sm bg-zinc-900 border-2 border-zinc-600 rounded-lg outline-none focus:border-amber-500 text-zinc-100 min-h-[80px] transition placeholder-zinc-500 resize-none" value={comment} onChange={(e) => setComment(e.target.value)} />
+          <button onClick={submitReview} disabled={isSubmitting} className={`w-full py-2.5 font-black tracking-wide rounded-lg text-sm transition shadow-md border-2 ${isSubmitting ? 'bg-zinc-700 border-zinc-600 text-zinc-400 cursor-not-allowed' : 'bg-zinc-900 border-amber-600 text-amber-500 hover:bg-amber-600 hover:text-zinc-900'}`}>
+            {isSubmitting ? '각인 중... ⏳' : '기록 저장하기'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 기록실 탭을 위한 개별 렌더링 컴포넌트
 function RecordCard({ game, togglePlayed }) {
   const [showRate, setShowRate] = useState(false);
   const [rating, setRating] = useState(5);
@@ -241,7 +350,6 @@ function RecordCard({ game, togglePlayed }) {
   const submitReview = async () => {
     if (!comment.trim()) return alert("기록을 남겨주세요!");
     setIsSubmitting(true); 
-
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const { data: existingReview } = await supabase.from('reviews').select('id').eq('game_id', game.id).eq('user_id', user.id).single();
@@ -278,7 +386,7 @@ function RecordCard({ game, togglePlayed }) {
         </button>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex gap-2 mt-auto">
         <button onClick={() => togglePlayed(game.id, false)} className={`px-2 py-2.5 rounded-lg text-xs font-bold transition border-2 flex-1 ${game.is_player ? 'bg-zinc-700 text-zinc-100 border-zinc-500 hover:bg-zinc-600' : 'bg-zinc-900 text-zinc-500 border-zinc-700 hover:bg-zinc-800'}`}>
           {game.is_player ? '🩸 경험자' : '경험 없음'}
         </button>
@@ -293,90 +401,13 @@ function RecordCard({ game, togglePlayed }) {
             <span className="text-sm font-bold text-zinc-300">별점:</span>
             <div className="flex gap-1">
               {[1, 2, 3, 4, 5].map(num => (
-                <button key={num} onClick={() => setRating(num)} className={`text-xl transition ${rating >= num ? 'text-amber-400' : 'text-zinc-600'}`}>★</button>
+                <button key={num} onClick={() => setRating(num)} className={`text-xl transition hover:scale-110 ${rating >= num ? 'text-amber-400' : 'text-zinc-600'}`}>★</button>
               ))}
             </div>
           </div>
-          <textarea placeholder="게임의 진실을 기록해주세요..." className="w-full p-3 text-sm bg-zinc-950 border-2 border-zinc-700 rounded-lg outline-none focus:border-amber-500 text-zinc-100 min-h-[60px] transition placeholder-zinc-500" value={comment} onChange={(e) => setComment(e.target.value)} />
+          <textarea placeholder="게임의 진실을 기록해주세요..." className="w-full p-3 text-sm bg-zinc-950 border-2 border-zinc-700 rounded-lg outline-none focus:border-amber-500 text-zinc-100 min-h-[60px] transition placeholder-zinc-500 resize-none" value={comment} onChange={(e) => setComment(e.target.value)} />
           <button onClick={submitReview} disabled={isSubmitting} className={`w-full py-2 font-black rounded-lg text-sm transition shadow-md border-2 ${isSubmitting ? 'bg-zinc-700 border-zinc-600 text-zinc-400 cursor-not-allowed' : 'bg-zinc-900 border-amber-600 text-amber-500 hover:bg-amber-600 hover:text-zinc-900'}`}>
             {isSubmitting ? '각인 중...' : '저장하기'}
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// RenderRow 컴포넌트 (스케줄 탭용)
-function RenderRow({ item, label, isSelected, onToggle }) {
-  const [showRate, setShowRate] = useState(false);
-  const [rating, setRating] = useState(5);
-  const [comment, setComment] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const submitReview = async () => {
-    if (!comment.trim()) return alert("기록을 남겨주세요!");
-    setIsSubmitting(true); 
-
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const { data: existingReview } = await supabase.from('reviews').select('id').eq('game_id', item.games.id).eq('user_id', user.id).single();
-      
-      let dbError = null;
-      if (existingReview) {
-        const { error } = await supabase.from('reviews').update({ rating, comment }).eq('id', existingReview.id);
-        dbError = error;
-      } else {
-        const { error } = await supabase.from('reviews').insert([{ game_id: item.games.id, user_id: user.id, rating, comment }]);
-        dbError = error;
-      }
-
-      if (dbError) alert("기록 저장에 실패했습니다: " + dbError.message);
-      else {
-        alert("기록이 각인되었습니다! 🩸");
-        setShowRate(false); 
-      }
-    } catch (error) {
-      alert("통신 중 에러가 발생했습니다.");
-    } finally {
-      setIsSubmitting(false); 
-    }
-  };
-
-  return (
-    <div className="flex flex-col gap-2 relative">
-      <label className={`flex justify-between items-center p-4 rounded-xl border-2 transition cursor-pointer h-full ${isSelected ? 'bg-zinc-800 border-red-600' : 'bg-zinc-800 border-zinc-600 hover:border-zinc-400'}`}>
-        <div className="flex items-center gap-4">
-          <input type="checkbox" className="w-6 h-6 accent-red-600 cursor-pointer flex-shrink-0 rounded border-zinc-500" checked={isSelected} onChange={onToggle} />
-          <div className="flex flex-col gap-1.5">
-            <span className="font-black text-zinc-100 text-lg">{label}</span>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className={`text-xs font-bold px-2.5 py-1.5 rounded-md border ${item.role_wanted === 'gm' ? 'bg-purple-900 text-purple-200 border-purple-600' : 'bg-zinc-700 text-zinc-300 border-zinc-500'}`}>
-                {item.role_wanted === 'gm' ? '👑 GM 대기' : '👤 참가자'}
-              </span>
-              {item.status === 'confirmed' && (
-                <button onClick={(e) => { e.preventDefault(); setShowRate(!showRate); }} className="text-xs text-amber-400 font-bold hover:text-amber-300 transition bg-zinc-700 px-3 py-1.5 rounded-md border border-zinc-500">
-                  {showRate ? '[접기]' : '⭐ 평점 남기기'}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      </label>
-
-      {showRate && (
-        <div className="p-5 bg-zinc-800 border-2 border-zinc-600 rounded-xl mt-[-10px] ml-10 space-y-4 shadow-xl relative z-10">
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-bold text-zinc-300">별점:</span>
-            <div className="flex gap-1">
-              {[1, 2, 3, 4, 5].map(num => (
-                <button key={num} onClick={() => setRating(num)} className={`text-2xl transition hover:scale-110 drop-shadow-md ${rating >= num ? 'text-amber-400' : 'text-zinc-600'}`}>★</button>
-              ))}
-            </div>
-          </div>
-          <textarea placeholder="게임의 진실을 기록해주세요..." className="w-full p-4 text-sm bg-zinc-900 border-2 border-zinc-600 rounded-lg outline-none focus:border-amber-500 text-zinc-100 min-h-[80px] transition placeholder-zinc-500" value={comment} onChange={(e) => setComment(e.target.value)} />
-          <button onClick={submitReview} disabled={isSubmitting} className={`w-full py-3 font-black tracking-wide rounded-lg text-sm transition shadow-md border-2 ${isSubmitting ? 'bg-zinc-700 border-zinc-600 text-zinc-400 cursor-not-allowed' : 'bg-zinc-900 border-amber-600 text-amber-500 hover:bg-amber-600 hover:text-zinc-900'}`}>
-            {isSubmitting ? '각인 중... ⏳' : '기록 저장하기'}
           </button>
         </div>
       )}

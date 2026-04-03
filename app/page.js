@@ -97,6 +97,16 @@ export default function Home() {
       if (selectedGameIds.length === 0) return alert('게임을 선택해주세요!');
       if (selectedDates.length === 0) return alert('거사일을 선택해주세요!');
       
+      // ✨ 1. GM 신청 시, 선택한 게임들이 GM을 지원하는지 검사
+    if (selectedRole === 'gm') {
+      const nonGmGames = games.filter(g => selectedGameIds.includes(g.id) && !g.needs_gm);
+      if (nonGmGames.length > 0) {
+        const titles = nonGmGames.map(g => g.title).join(', ');
+        alert(`다음 게임은 GM이 필요하지 않습니다: [${titles}]\n참가자(player)로 신청해주세요.`);
+        return;
+      }
+    }
+
       setIsSubmitting(true);
   
       // ✨ 추가된 로직: 현재 유저가 이미 신청한 내역(대기/확정 모두) 가져오기
