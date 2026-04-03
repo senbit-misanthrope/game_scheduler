@@ -16,6 +16,7 @@ export default function StatusPage() {
 
   useEffect(() => { fetchUserAndSchedules(); }, []);
 
+  // 확정 시 다른 대기 중인 겹치는 일정 삭제
   const cleanUpConflictingSchedules = async (confirmedDate, confirmedGameId, participantIds) => {
     const { error } = await supabase.from('schedules').delete()
       .eq('status', 'waiting').neq('role_wanted', 'gm').in('user_id', participantIds)
@@ -50,14 +51,26 @@ export default function StatusPage() {
 
     const groupArray = Object.values(grouped);
 
+    // ✨ 자동 확정 로직 강화
     if (!isRetry) {
       for (const g of groupArray) {
+        // 모집 중인데 최대 인원(max_players)에 도달한 경우
         if (g.status === 'waiting' && g.playerCount >= g.games.max_players) {
+          // GM이 필수인 게임인데 아직 GM이 없는 경우 제외
           if (g.games.needs_gm && g.gmCount === 0) continue;
-          await supabase.from('schedules').update({ status: 'confirmed' }).eq('available_date', g.available_date).eq('game_id', g.game_id);
+
+          // 즉시 DB 업데이트
+          await supabase.from('schedules')
+            .update({ status: 'confirmed' })
+            .eq('available_date', g.available_date)
+            .eq('game_id', g.game_id);
+
           const pIds = g.applicants.map(a => a.user_id);
           await cleanUpConflictingSchedules(g.available_date, g.game_id, pIds);
-          sendDiscordMessage(`🎉 **모집 확정 (풀파티)!**\n게임: [${g.title}]\n날짜: ${g.available_date}\n참여자: ${[...g.playerNames, ...g.gmNames].join(', ')}`);
+
+          sendDiscordMessage(`🎉 **자동 모집 확정 (정원 초과)!**\n게임: [${g.title}]\n날짜: ${g.available_date}\n참여자: ${[...g.playerNames, ...g.gmNames].join(', ')}`);
+          
+          // 업데이트된 정보를 다시 불러오기 위해 재귀 호출
           return fetchUserAndSchedules(true);
         }
       }
@@ -77,21 +90,12 @@ export default function StatusPage() {
     }
 
     const { error } = await supabase.from('schedules').insert([{ user_id: user.id, game_id: item.game_id, available_date: item.available_date, role_wanted: role }]);
+    
     if (!error) {
-      const newPlayerCount = item.playerCount + (role === 'player' ? 1 : 0);
-      const newGmCount = item.gmCount + (role === 'gm' ? 1 : 0);
-      
-      const { data: p } = await supabase.from('profiles').select('nickname');
-      const pMap = (p || []).reduce((acc, curr) => { acc[curr.id] = curr.nickname; return acc; }, {});
-      const currentNames = [...item.playerNames, ...item.gmNames, pMap[user.id] || '본인'];
-
-      if (newPlayerCount === item.games.max_players) {
-        if (item.games.needs_gm && newGmCount === 0) sendDiscordMessage(`🚨 **최대 인원 도달 (GM 구인 중)!**\n게임: [${item.title}]\n날짜: ${item.available_date}\n플레이어 인원이 꽉 찼지만 진행자(GM)가 없어 확정되지 않았습니다!\n현재 명단: ${currentNames.join(', ')}`);
-      } else if (newPlayerCount === item.games.recommended_players) {
-        if (item.games.needs_gm && newGmCount === 0) sendDiscordMessage(`🔥 **추천 인원 도달 (GM 구인 중)!**\n게임: [${item.title}]\n날짜: ${item.available_date}\n추천 인원에 도달했지만 진행자(GM)가 필요합니다!\n현재 명단: ${currentNames.join(', ')}`);
-        else sendDiscordMessage(`🔥 **추천 인원 도달!**\n게임: [${item.title}]\n날짜: ${item.available_date}\n현황판에서 '진행 찬성'을 누르면 확정됩니다!\n현재 명단: ${currentNames.join(', ')}`);
-      }
+      // 신청 직후 최신 데이터로 동기화 (이 과정에서 자동 확정 로직이 돌아감)
       fetchUserAndSchedules();
+    } else {
+      alert("신청 중 오류가 발생했습니다.");
     }
   };
 
@@ -109,7 +113,7 @@ export default function StatusPage() {
       const pIds = item.applicants.map(a => a.user_id);
       await cleanUpConflictingSchedules(item.available_date, item.game_id, pIds);
       sendDiscordMessage(`✅ **만장일치 확정!**\n게임: [${item.title}]\n날짜: ${item.available_date}\n참여자: ${item.applicants.map(a => a.nickname).join(', ')}`);
-      alert("만장일치로 거사가 확정되었습니다! [🎉 확정됨] 탭에서 확인하세요.");
+      alert("만장일치로 거사가 확정되었습니다!");
     }
     fetchUserAndSchedules();
   };
@@ -120,14 +124,12 @@ export default function StatusPage() {
     const pIds = applicants.map(a => a.user_id);
     await cleanUpConflictingSchedules(date, gameId, pIds);
     sendDiscordMessage(`👑 **수동 확정!**\n관리자가 [${title}] 모임을 확정하였습니다.\n날짜: ${date}`);
-    alert("거사가 강제 확정되었습니다! [🎉 확정됨] 탭에서 확인하세요.");
     fetchUserAndSchedules();
   };
 
   const cancelConfirm = async (date, gameId) => {
     if (!window.confirm("확정을 취소하시겠습니까?")) return;
     await supabase.from('schedules').update({ status: 'waiting', is_ready: false }).eq('available_date', date).eq('game_id', gameId);
-    alert("확정이 취소되어 다시 [⏳ 모집 중] 탭으로 이동합니다.");
     fetchUserAndSchedules();
   };
 
@@ -216,20 +218,25 @@ export default function StatusPage() {
                           {item.status === 'confirmed' && <span className="text-emerald-400 text-xs font-bold bg-emerald-950/50 border border-emerald-900/50 px-3 py-1.5 rounded-lg shadow-sm whitespace-nowrap ml-2">🎉 확정</span>}
                         </div>
                         
-                        {/* ✨ 추가된 인원 정보 뱃지 */}
                         <div className="flex flex-wrap gap-2 mb-4 text-xs font-bold text-zinc-400">
                           <span className="bg-zinc-800 border border-zinc-600 px-2 py-1 rounded">
-                            👥 {item.games.min_players === item.games.max_players ? `${item.games.min_players}명` : `${item.games.min_players}~${item.games.max_players}명`}
+                            {/* ✨ 정원 정보 옆에 현재 모집 인원(playerCount) 표시 */}
+                            👥 {item.games.min_players === item.games.max_players ? `${item.games.min_players}명` : `${item.games.min_players}~${item.games.max_players}명`} (현재 {item.playerCount}명)
                           </span>
                           {item.games.recommended_players > 0 && (
                             <span className="bg-zinc-800 text-emerald-400 border border-zinc-600 px-2 py-1 rounded">
                               👍 추천 {item.games.recommended_players}명
                             </span>
                           )}
+                          {/* ✨ GM 정보가 필요한 경우 GM 인원 별도 표기 */}
+                          {item.games.needs_gm && (
+                            <span className={`border px-2 py-1 rounded ${item.gmCount > 0 ? 'bg-purple-900 text-purple-300 border-purple-700' : 'bg-zinc-800 text-zinc-500 border-zinc-600'}`}>
+                              👑 GM {item.gmCount}명
+                            </span>
+                          )}
                         </div>
 
                         <div className="text-sm bg-zinc-900 p-4 rounded-xl mb-5 border border-zinc-800">
-                          {/* ✨ 수정: 인원 표시 (1/4) 제거, 닉네임만 표시 */}
                           <p className="text-blue-400 font-bold mb-2">👤 플레이어: {item.playerNames.length > 0 ? item.playerNames.join(', ') : '없음'}</p>
                           {item.games.needs_gm && (
                             <p className="text-purple-400 font-bold">👑 GM: {item.gmNames.length > 0 ? item.gmNames.join(', ') : '구인중 🚨'}</p>
@@ -250,7 +257,6 @@ export default function StatusPage() {
                                 </>
                               ) : (
                                 <button disabled className="px-4 py-3 bg-zinc-800 border-2 border-zinc-700 text-zinc-500 rounded-lg font-bold text-sm w-full cursor-not-allowed">
-                                  {/* ✨ 수정: 버튼 텍스트에서 인원 현황 제거 */}
                                   {!hasRequiredGm ? `⏳ 진행자(GM) 구인 중 (찬성 대기)` : `⏳ 플레이어 부족`}
                                 </button>
                               )}
