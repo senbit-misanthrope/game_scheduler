@@ -20,8 +20,9 @@ export default function MyPage() {
   const [viewMode, setViewMode] = useState('game'); 
   const [selectedIds, setSelectedIds] = useState([]); 
 
-  // ✨ 추가: 나의 기록 탭 전용 검색어 상태
-  const [recordSearchTerm, setRecordSearchTerm] = useState('');
+  // ✨ 추가: 탭별 검색어 상태 관리
+  const [scheduleSearchTerm, setScheduleSearchTerm] = useState(''); // 예정된 거사 검색용
+  const [recordSearchTerm, setRecordSearchTerm] = useState('');     // 나의 기록 검색용
 
   useEffect(() => {
     getUserAndData();
@@ -132,7 +133,12 @@ export default function MyPage() {
     setPlayedGames(data || []);
   };
 
-  const filteredMySchedules = mySchedules.filter(s => s.status === scheduleSubTab);
+  // ✨ 예정된 거사 필터링 (서브탭 + 검색어)
+  const filteredMySchedules = mySchedules.filter(s => {
+    const matchesTab = s.status === scheduleSubTab;
+    const matchesSearch = s.games?.title.toLowerCase().includes(scheduleSearchTerm.toLowerCase());
+    return matchesTab && matchesSearch;
+  });
 
   const groupedByGame = filteredMySchedules.reduce((acc, curr) => {
     const gId = curr.games?.id;
@@ -151,7 +157,7 @@ export default function MyPage() {
   }, {});
   const datesArray = Object.values(groupedByDate).sort((a, b) => new Date(a.date) - new Date(b.date));
 
-  // ✨ 추가: 나의 기록 필터링 로직
+  // ✨ 나의 기록 필터링 (검색어)
   const filteredPlayedGames = Object.values(playedGames.reduce((acc, curr) => {
     if (!curr.games) return acc; 
     const gId = curr.games.id;
@@ -172,6 +178,7 @@ export default function MyPage() {
         <Link href="/" className="px-5 py-2 bg-zinc-800 border-2 border-zinc-600 text-zinc-200 rounded-lg font-bold hover:bg-zinc-700 transition">대시보드로</Link>
       </div>
 
+      {/* 호칭 설정 섹션 */}
       <div className="bg-zinc-900 p-6 rounded-2xl border-2 border-zinc-700 mb-8 flex flex-col sm:flex-row sm:items-end gap-4 shadow-md">
         <div className="flex-1">
           <label className="block text-sm font-bold text-zinc-300 mb-2">아지트에서 사용할 호칭 (예: 쎈빛)</label>
@@ -180,6 +187,7 @@ export default function MyPage() {
         <button onClick={handleSaveNickname} className="w-full sm:w-auto px-8 py-3 bg-zinc-800 border-2 border-red-700 text-red-400 font-black rounded-xl hover:bg-red-900 hover:text-white transition shadow-sm">호칭 각인</button>
       </div>
 
+      {/* 메인 탭 */}
       <div className="flex gap-4 mb-8 bg-zinc-900 p-2 rounded-2xl border-2 border-zinc-700 overflow-x-auto shadow-sm">
         <button onClick={() => setActiveMainTab('schedules')} className={`flex-1 min-w-[120px] px-6 py-3 rounded-xl font-bold transition border-2 ${activeMainTab === 'schedules' ? 'bg-zinc-800 border-zinc-500 text-white' : 'border-transparent text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'}`}>📅 예정된 거사</button>
         <button onClick={() => setActiveMainTab('records')} className={`flex-1 min-w-[120px] px-6 py-3 rounded-xl font-bold transition border-2 ${activeMainTab === 'records' ? 'bg-red-900 border-red-600 text-white' : 'border-transparent text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'}`}>📖 나의 핏빛 기록</button>
@@ -192,6 +200,17 @@ export default function MyPage() {
             <button onClick={() => setScheduleSubTab('confirmed')} className={`px-4 py-2 text-lg font-black transition ${scheduleSubTab === 'confirmed' ? 'text-emerald-400 border-b-2 border-emerald-500' : 'text-zinc-500 hover:text-zinc-300'}`}>🎉 확정됨</button>
           </div>
 
+          {/* ✨ 예정된 거사 검색바 */}
+          <div className="mb-6">
+            <input 
+              type="text" 
+              placeholder="예정된 게임 제목 검색..." 
+              value={scheduleSearchTerm}
+              onChange={(e) => setScheduleSearchTerm(e.target.value)}
+              className="w-full bg-zinc-900 border-2 border-zinc-700 p-4 rounded-xl focus:border-zinc-500 outline-none text-lg text-zinc-100 placeholder-zinc-500 transition shadow-inner" 
+            />
+          </div>
+
           <div className="flex gap-3 mb-6">
             <button onClick={() => setViewMode('game')} className={`px-5 py-2.5 rounded-lg font-bold text-sm transition border-2 ${viewMode === 'game' ? 'bg-zinc-700 border-zinc-500 text-white' : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-500 hover:text-zinc-200'}`}>🎮 게임별 보기</button>
             <button onClick={() => setViewMode('date')} className={`px-5 py-2.5 rounded-lg font-bold text-sm transition border-2 ${viewMode === 'date' ? 'bg-zinc-700 border-zinc-500 text-white' : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-500 hover:text-zinc-200'}`}>📅 날짜별 보기</button>
@@ -199,7 +218,7 @@ export default function MyPage() {
 
           {filteredMySchedules.length === 0 ? (
             <div className="text-center py-24 bg-zinc-900 rounded-2xl border-2 border-dashed border-zinc-700">
-              <p className="text-zinc-400 text-xl font-bold">해당하는 서약이 없습니다.</p>
+              <p className="text-zinc-400 text-xl font-bold">{scheduleSearchTerm ? "검색 조건과 일치하는 서약이 없습니다." : "해당하는 서약이 없습니다."}</p>
             </div>
           ) : (
             <div className="space-y-6 pb-24">
@@ -251,7 +270,6 @@ export default function MyPage() {
 
       {activeMainTab === 'records' && (
         <div className="bg-zinc-900 p-6 md:p-8 rounded-3xl border-2 border-zinc-700 min-h-[400px]">
-          {/* ✨ 추가: 기록 검색창 UI */}
           <div className="mb-8">
             <input 
               type="text" 
@@ -279,7 +297,7 @@ export default function MyPage() {
   );
 }
 
-// ... 하단 RenderRow 및 RecordCard 컴포넌트 코드는 이전과 동일하므로 생략합니다 ...
+// RenderRow 및 RecordCard 컴포넌트 생략 (이전과 동일)
 function RenderRow({ item, label, isSelected, onToggle, allSchedules, viewMode, refreshData }) {
   const [showRate, setShowRate] = useState(false);
   const [rating, setRating] = useState(5);
