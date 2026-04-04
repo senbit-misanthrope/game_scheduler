@@ -20,6 +20,9 @@ export default function Home() {
   const [selectedRole, setSelectedRole] = useState('player');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // ✨ 추가: 드롭다운 메뉴 상태 관리
+  const [isDropdownMenuOpen, setIsDropdownMenuOpen] = useState(false);
+
   useEffect(() => {
     const fetchData = async () => {
       const { data: authData } = await supabase.auth.getUser();
@@ -39,7 +42,6 @@ export default function Home() {
         setPlayedGames(playedRes.data || []);
         setGames(gamesRes.data || []);
       } else {
-        // 비로그인 유저도 게임 목록은 볼 수 있도록 데이터 세팅
         const { data: g } = await supabase.from('games').select('*').order('title', { ascending: true });
         setGames(g || []);
       }
@@ -52,7 +54,6 @@ export default function Home() {
     window.location.reload();
   };
 
-  // 비회원이 VIP 메뉴를 클릭할 때 페이지 이동을 막고 경고창 띄우는 센서
   const handleProtectedLink = (e) => {
     if (!user) {
       e.preventDefault(); 
@@ -61,7 +62,6 @@ export default function Home() {
   };
 
   const toggleGameSelection = (gameId) => {
-    // 로그인하지 않은 유저가 게임을 소집(선택)하려고 하면 차단!
     if (!user) {
       alert('아지트 요원만 모임을 소집할 수 있습니다. 로그인을 먼저 해주세요! 🩸');
       return;
@@ -75,7 +75,6 @@ export default function Home() {
   };
 
   const togglePlayed = async (gameId, isGmMode) => {
-    // 로그인하지 않은 유저가 플레이 기록을 건드리려고 하면 차단!
     if (!user) {
       alert('로그인이 필요한 기능입니다. 요원으로 합류해주세요! 🩸');
       return;
@@ -227,7 +226,6 @@ export default function Home() {
           <Link href="/recommend" onClick={handleProtectedLink} className="px-4 py-2 bg-zinc-800 border-2 border-zinc-700 text-purple-400 hover:bg-zinc-700 hover:border-purple-500 rounded-lg text-sm font-bold shadow-sm transition">🎯 맞춤 추천</Link>
           <Link href="/status" onClick={handleProtectedLink} className="px-4 py-2 bg-zinc-800 border-2 border-zinc-700 text-red-400 hover:bg-zinc-700 hover:border-red-500 rounded-lg text-sm font-bold shadow-sm transition">📊 현황판</Link>
 
-          {/* ✨ 추가: 디스코드 공식 컬러(#5865F2) 및 아이콘 적용된 직접 초대 버튼 */}
           <a href="https://discord.gg/WhSn6M6fGM" target="_blank" rel="noopener noreferrer" className="px-4 py-2 bg-[#5865F2] hover:bg-[#4752C4] border-2 border-[#5865F2] hover:border-[#4752C4] text-white rounded-lg text-sm font-bold shadow-sm transition flex items-center gap-2">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
               <path d="M13.545 2.907a13.227 13.227 0 0 0-3.257-1.011.05.05 0 0 0-.052.025c-.141.25-.297.577-.406.833a12.19 12.19 0 0 0-3.658 0 8.258 8.258 0 0 0-.412-.833.051.051 0 0 0-.052-.025c-1.125.194-2.22.534-3.257 1.011a.041.041 0 0 0-.021.018C.356 6.024-.213 9.047.066 12.032c.001.014.01.028.021.037a13.276 13.276 0 0 0 3.995 2.02.05.05 0 0 0 .056-.019c.308-.42.582-.863.818-1.329a.05.05 0 0 0-.01-.059.051.051 0 0 0-.018-.011 8.875 8.875 0 0 1-1.248-.595.05.05 0 0 1-.02-.066.051.051 0 0 1 .015-.019c.084-.063.168-.129.248-.195a.05.05 0 0 1 .051-.007c2.619 1.196 5.454 1.196 8.041 0a.052.052 0 0 1 .053.007c.08.066.164.132.248.195a.051.051 0 0 1-.004.085 8.254 8.254 0 0 1-1.249.594.05.05 0 0 0-.03.03.052.052 0 0 0 .003.041c.24.465.515.909.817 1.329a.05.05 0 0 0 .056.019 13.235 13.235 0 0 0 4.001-2.02.049.049 0 0 0 .021-.037c.334-3.451-.559-6.449-2.366-9.106a.034.034 0 0 0-.02-.019Zm-8.198 7.307c-.789 0-1.438-.724-1.438-1.612 0-.889.637-1.613 1.438-1.613.807 0 1.45.73 1.438 1.613 0 .888-.637 1.612-1.438 1.612Zm5.316 0c-.788 0-1.438-.724-1.438-1.612 0-.889.637-1.613 1.438-1.613.807 0 1.45.73 1.438 1.613 0 .888-.631 1.612-1.438 1.612Z"/>
@@ -236,10 +234,36 @@ export default function Home() {
           </a>
 
           {user ? (
-            <div className="flex items-center gap-2 ml-2 md:border-l-2 border-zinc-800 md:pl-4">
-              {isAdmin && <Link href="/admin" className="px-3 py-2 bg-zinc-800 border-2 border-zinc-600 text-zinc-200 rounded-lg text-sm font-bold hover:bg-zinc-700 transition">👑 관리자</Link>}
-              <Link href="/mypage" className="px-4 py-2 bg-zinc-800 border-2 border-zinc-600 text-zinc-200 rounded-lg text-sm font-bold hover:bg-zinc-700 transition">{profile?.nickname || '익명'} 👤</Link>
-              <button onClick={handleLogout} className="px-3 py-2 bg-zinc-900 text-red-500 border-2 border-zinc-700 rounded-lg text-sm font-bold hover:bg-zinc-800 transition">로그아웃</button>
+            /* ✨ 수정: 드롭다운 적용 영역 */
+            <div className="relative ml-2 md:border-l-2 border-zinc-800 md:pl-4">
+              <button 
+                onClick={() => setIsDropdownMenuOpen(!isDropdownMenuOpen)}
+                className="px-4 py-2 bg-zinc-800 border-2 border-zinc-600 text-zinc-200 rounded-lg text-sm font-bold hover:bg-zinc-700 transition flex items-center gap-2 shadow-sm"
+              >
+                {profile?.nickname || '익명'} 👤
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16" className={`transition-transform duration-200 ${isDropdownMenuOpen ? 'rotate-180' : ''}`}>
+                  <path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z"/>
+                </svg>
+              </button>
+
+              {isDropdownMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setIsDropdownMenuOpen(false)}></div>
+                  <div className="absolute right-0 mt-2 w-44 bg-zinc-900 border-2 border-zinc-700 rounded-xl shadow-2xl overflow-hidden z-50 flex flex-col">
+                    {isAdmin && (
+                      <Link href="/admin" className="px-4 py-3 border-b-2 border-zinc-800 text-sm font-bold text-zinc-200 hover:bg-zinc-800 transition text-left" onClick={() => setIsDropdownMenuOpen(false)}>
+                        👑 관리자
+                      </Link>
+                    )}
+                    <Link href="/mypage" className="px-4 py-3 border-b-2 border-zinc-800 text-sm font-bold text-zinc-200 hover:bg-zinc-800 transition text-left" onClick={() => setIsDropdownMenuOpen(false)}>
+                      👤 마이페이지
+                    </Link>
+                    <button onClick={handleLogout} className="px-4 py-3 text-sm font-bold text-red-500 hover:bg-zinc-800 transition text-left">
+                      🚪 로그아웃
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             <Link href="/login" className="px-5 py-2 bg-red-700 text-white rounded-lg font-bold ml-2 hover:bg-red-600 shadow-md">로그인</Link>
