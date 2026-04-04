@@ -39,6 +39,7 @@ export default function Home() {
         setPlayedGames(playedRes.data || []);
         setGames(gamesRes.data || []);
       } else {
+        // ✨ 비로그인 유저도 게임 목록은 볼 수 있도록 데이터 세팅
         const { data: g } = await supabase.from('games').select('*').order('title', { ascending: true });
         setGames(g || []);
       }
@@ -52,6 +53,12 @@ export default function Home() {
   };
 
   const toggleGameSelection = (gameId) => {
+    // ✨ 핵심: 로그인하지 않은 유저가 게임을 소집(선택)하려고 하면 차단!
+    if (!user) {
+      alert('아지트 요원만 모임을 소집할 수 있습니다. 로그인을 먼저 해주세요! 🩸');
+      return;
+    }
+
     if (selectedGameIds.includes(gameId)) {
       setSelectedGameIds(selectedGameIds.filter(id => id !== gameId));
     } else {
@@ -60,7 +67,11 @@ export default function Home() {
   };
 
   const togglePlayed = async (gameId, isGmMode) => {
-    if (!user) return alert('로그인이 필요합니다!');
+    // ✨ 핵심: 로그인하지 않은 유저가 플레이 기록을 건드리려고 하면 차단!
+    if (!user) {
+      alert('로그인이 필요한 기능입니다. 요원으로 합류해주세요! 🩸');
+      return;
+    }
     
     const gameRecords = playedGames.filter(pg => pg.game_id === gameId);
     const hasPlayed = gameRecords.some(pg => pg.is_gm === false);
@@ -93,12 +104,11 @@ export default function Home() {
     }
   };
 
-  // ✨ 업데이트된 submitSchedules: 사전 정원 검사 및 부분 성공 처리 도입
   const submitSchedules = async () => {
+    if (!user) return; // 2중 안전장치
     if (selectedGameIds.length === 0) return alert('게임을 선택해주세요!');
     if (selectedDates.length === 0) return alert('거사일을 선택해주세요!');
     
-    // 1. GM 신청 시, 선택한 게임들이 GM을 지원하는지 검사
     if (selectedRole === 'gm') {
       const nonGmGames = games.filter(g => selectedGameIds.includes(g.id) && !g.needs_gm);
       if (nonGmGames.length > 0) {
@@ -110,7 +120,6 @@ export default function Home() {
 
     setIsSubmitting(true);
 
-    // 2. 현재 내 신청 내역 (중복 검사용) 및 전체 신청 내역 (정원 검사용) 가져오기
     const [ { data: existingSchedules }, { data: allSchedules } ] = await Promise.all([
       supabase.from('schedules').select('game_id, available_date').eq('user_id', user.id),
       supabase.from('schedules').select('game_id, available_date, role_wanted').in('available_date', selectedDates).in('game_id', selectedGameIds)
@@ -119,18 +128,15 @@ export default function Home() {
     const validInserts = [];
     const failMessages = [];
 
-    // 3. 신청하려는 날짜와 게임을 순회하며 하나씩 깐깐하게 검사
     for (const gameId of selectedGameIds) {
       const gameInfo = games.find(g => g.id === gameId);
       for (const date of selectedDates) {
-        // 중복 검사
         const isDuplicate = existingSchedules?.some(s => s.game_id === gameId && s.available_date === date);
         if (isDuplicate) {
           failMessages.push(`[${date}] ${gameInfo.title} (중복 신청)`);
           continue;
         }
 
-        // 정원 검사
         const schedulesForThis = allSchedules?.filter(s => s.game_id === gameId && s.available_date === date) || [];
         const pCount = schedulesForThis.filter(s => s.role_wanted === 'player').length;
         const gmCount = schedulesForThis.filter(s => s.role_wanted === 'gm').length;
@@ -144,19 +150,16 @@ export default function Home() {
           continue;
         }
 
-        // 통과한 데이터만 수집
         validInserts.push({ user_id: user.id, game_id: gameId, available_date: date, role_wanted: selectedRole });
       }
     }
 
-    // 4. 통과한 데이터 DB 전송 및 결과 알림
     if (validInserts.length > 0) {
       const { error } = await supabase.from('schedules').insert(validInserts);
       
       if (error) {
         alert("서약 중 통신 오류가 발생했습니다.");
       } else {
-        // 성공한 일정들에 대해 디스코드 알림 검사
         for (const insert of validInserts) {
           const { game_id: gameId, available_date: date } = insert;
           const { data: schData } = await supabase.from('schedules').select('user_id, role_wanted').eq('game_id', gameId).eq('available_date', date).eq('status', 'waiting');
@@ -179,7 +182,6 @@ export default function Home() {
           }
         }
 
-        // 결과 메시지 조립
         let resultMsg = `${validInserts.length}개의 거사 신청이 성공적으로 완료되었습니다! 🩸\n`;
         if (failMessages.length > 0) {
           resultMsg += `\n❌ 아래 일정은 정원 초과 등으로 튕겨냈습니다:\n- ` + failMessages.join('\n- ');
@@ -191,7 +193,6 @@ export default function Home() {
         setSelectedDates([]);
       }
     } else {
-      // 전부 실패했을 경우
       alert(`신청 가능한 일정이 없습니다.\n\n❌ 거부 사유:\n- ` + failMessages.join('\n- '));
     }
 
@@ -279,8 +280,9 @@ export default function Home() {
               </div>
 
               <div className="flex gap-2 border-t-2 border-zinc-800 pt-3 mt-auto" onClick={(e) => e.stopPropagation()}>
+                {/* ✨ 텍스트 수정: '경험 없음' -> '플레이 안함', '경험자' -> '이미 플레이 함' */}
                 <button onClick={() => togglePlayed(game.id, false)} className={`px-4 py-2.5 rounded-lg text-xs font-bold transition border-2 flex-1 ${isPlayed ? 'bg-zinc-700 text-zinc-100 border-zinc-500' : 'bg-zinc-800 text-zinc-300 border-zinc-600 hover:bg-zinc-700 hover:border-zinc-500'}`}>
-                  {isPlayed ? '🩸 경험자' : '경험 없음'}
+                  {isPlayed ? '🩸 이미 플레이 함' : '플레이 안함'}
                 </button>
                 {game.needs_gm && (
                   <button onClick={() => togglePlayed(game.id, true)} className={`px-4 py-2.5 rounded-lg text-xs font-bold transition border-2 flex-1 ${isGmCapable ? 'bg-purple-800 text-purple-100 border-purple-500' : 'bg-zinc-800 text-zinc-300 border-zinc-600 hover:bg-zinc-700 hover:border-zinc-500'}`}>
@@ -309,7 +311,7 @@ export default function Home() {
                 value={selectedDates} 
                 onChange={(dates) => setSelectedDates(dates.map(d => d.format("YYYY-MM-DD")))} 
                 format="YYYY-MM-DD" 
-                minDate={new Date()}  /* 과거 날짜 선택 방지 */
+                minDate={new Date()}  
                 inputClass="w-full bg-zinc-800 border-2 border-zinc-600 p-3 rounded-xl focus:border-red-600 text-zinc-100 outline-none transition placeholder-zinc-500" 
                 containerClassName="w-full" 
                 placeholder="날짜를 클릭하세요" 
