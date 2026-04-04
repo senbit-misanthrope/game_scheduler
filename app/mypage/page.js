@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
-// ✨ 추가: 디스코드 알림 발송을 위한 임포트
 import { sendDiscordMessage } from '@/lib/notifications';
 
 export default function MyPage() {
@@ -12,7 +11,6 @@ export default function MyPage() {
   const [nicknameInput, setNicknameInput] = useState('');
   
   const [activeMainTab, setActiveMainTab] = useState('schedules'); 
-  // ✨ 추가: 스케줄 내부 서브 탭 (모집 중 / 확정됨)
   const [scheduleSubTab, setScheduleSubTab] = useState('waiting'); 
   
   const [mySchedules, setMySchedules] = useState([]);
@@ -21,6 +19,9 @@ export default function MyPage() {
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState('game'); 
   const [selectedIds, setSelectedIds] = useState([]); 
+
+  // ✨ 추가: 나의 기록 탭 전용 검색어 상태
+  const [recordSearchTerm, setRecordSearchTerm] = useState('');
 
   useEffect(() => {
     getUserAndData();
@@ -98,7 +99,6 @@ export default function MyPage() {
            .eq('available_date', item.available_date)
            .eq('status', 'confirmed');
 
-         // ✨ 추가: 확정된 일정이 취소되어 모집 중으로 돌아갈 때 디스코드 알림 발송!
          sendDiscordMessage(`🚨 **거사 확정 취소 (멤버 이탈)**\n게임: [${item.games.title}]\n날짜: ${item.available_date}\n요원 한 명이 서약을 파기하여 방이 다시 [모집 중] 상태로 돌아갔습니다. 🩸`);
       }
 
@@ -132,7 +132,6 @@ export default function MyPage() {
     setPlayedGames(data || []);
   };
 
-  // ✨ 추가: 선택된 서브 탭에 맞게 데이터 사전 필터링
   const filteredMySchedules = mySchedules.filter(s => s.status === scheduleSubTab);
 
   const groupedByGame = filteredMySchedules.reduce((acc, curr) => {
@@ -151,6 +150,18 @@ export default function MyPage() {
     return acc;
   }, {});
   const datesArray = Object.values(groupedByDate).sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  // ✨ 추가: 나의 기록 필터링 로직
+  const filteredPlayedGames = Object.values(playedGames.reduce((acc, curr) => {
+    if (!curr.games) return acc; 
+    const gId = curr.games.id;
+    if (!acc[gId]) acc[gId] = { id: gId, title: curr.games.title, is_player: false, is_gm: false };
+    if (curr.is_gm) acc[gId].is_gm = true;
+    else acc[gId].is_player = true;
+    return acc;
+  }, {})).filter(game => 
+    game.title.toLowerCase().includes(recordSearchTerm.toLowerCase())
+  );
 
   if (loading) return <div className="p-8 text-center text-lg font-bold text-zinc-400 bg-zinc-950 min-h-screen">기록을 해독하는 중...</div>;
 
@@ -176,7 +187,6 @@ export default function MyPage() {
 
       {activeMainTab === 'schedules' && (
         <>
-          {/* ✨ 서브 탭: 모집 중 / 확정됨 분리 UI */}
           <div className="flex gap-4 mb-6 border-b-2 border-zinc-800 pb-4">
             <button onClick={() => setScheduleSubTab('waiting')} className={`px-4 py-2 text-lg font-black transition ${scheduleSubTab === 'waiting' ? 'text-red-400 border-b-2 border-red-500' : 'text-zinc-500 hover:text-zinc-300'}`}>⏳ 모집 중</button>
             <button onClick={() => setScheduleSubTab('confirmed')} className={`px-4 py-2 text-lg font-black transition ${scheduleSubTab === 'confirmed' ? 'text-emerald-400 border-b-2 border-emerald-500' : 'text-zinc-500 hover:text-zinc-300'}`}>🎉 확정됨</button>
@@ -241,20 +251,24 @@ export default function MyPage() {
 
       {activeMainTab === 'records' && (
         <div className="bg-zinc-900 p-6 md:p-8 rounded-3xl border-2 border-zinc-700 min-h-[400px]">
-          {playedGames.length === 0 ? (
+          {/* ✨ 추가: 기록 검색창 UI */}
+          <div className="mb-8">
+            <input 
+              type="text" 
+              placeholder="플레이한 기록 검색..." 
+              value={recordSearchTerm}
+              onChange={(e) => setRecordSearchTerm(e.target.value)}
+              className="w-full bg-zinc-800 border-2 border-zinc-700 p-4 rounded-xl focus:border-red-600 outline-none text-lg text-zinc-100 placeholder-zinc-500 transition shadow-inner" 
+            />
+          </div>
+
+          {filteredPlayedGames.length === 0 ? (
             <div className="text-center py-20 text-zinc-400 font-bold border-2 border-dashed border-zinc-700 rounded-2xl bg-zinc-950">
-              아직 아지트에서 쌓은 기록이 없습니다.
+              {recordSearchTerm ? "검색 결과와 일치하는 기록이 없습니다." : "아직 아지트에서 쌓은 기록이 없습니다."}
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-              {Object.values(playedGames.reduce((acc, curr) => {
-                if (!curr.games) return acc; 
-                const gId = curr.games.id;
-                if (!acc[gId]) acc[gId] = { id: gId, title: curr.games.title, is_player: false, is_gm: false };
-                if (curr.is_gm) acc[gId].is_gm = true;
-                else acc[gId].is_player = true;
-                return acc;
-              }, {})).map((game, idx) => (
+              {filteredPlayedGames.map((game, idx) => (
                 <RecordCard key={idx} game={game} togglePlayed={togglePlayed} />
               ))}
             </div>
@@ -265,6 +279,7 @@ export default function MyPage() {
   );
 }
 
+// ... 하단 RenderRow 및 RecordCard 컴포넌트 코드는 이전과 동일하므로 생략합니다 ...
 function RenderRow({ item, label, isSelected, onToggle, allSchedules, viewMode, refreshData }) {
   const [showRate, setShowRate] = useState(false);
   const [rating, setRating] = useState(5);
