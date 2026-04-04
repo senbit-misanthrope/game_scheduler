@@ -122,7 +122,7 @@ export default function AdminPage() {
     }
   };
 
-  // ✨ 추가: 검색어에 따라 게임 목록 필터링
+  // ✨ 검색어에 따라 게임 목록 필터링
   const filteredGames = games.filter(game => 
     game.title.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -132,11 +132,12 @@ export default function AdminPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-6xl mx-auto bg-zinc-950 min-h-screen text-zinc-200 font-sans selection:bg-purple-900">
-      <div className="flex justify-between items-center mb-8 border-b-2 border-zinc-800 pb-4">
+      {/* 모바일에서 버튼이 제목을 가리지 않도록 flex-col 반응형 적용 */}
+      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-8 border-b-2 border-zinc-800 pb-4">
         <h1 className="text-3xl font-black text-zinc-100 flex items-center gap-3">
           👑 관리자 컨트롤 타워
         </h1>
-        <Link href="/" className="px-5 py-2 bg-zinc-800 border-2 border-zinc-600 text-zinc-200 rounded-lg font-bold hover:bg-zinc-700 transition">대시보드로</Link>
+        <Link href="/" className="px-5 py-2 bg-zinc-800 border-2 border-zinc-600 text-zinc-200 rounded-lg font-bold text-center hover:bg-zinc-700 transition">대시보드로</Link>
       </div>
 
       <div className="flex gap-4 mb-8 bg-zinc-900 p-2 rounded-2xl border-2 border-zinc-700 overflow-x-auto shadow-sm">
@@ -145,15 +146,15 @@ export default function AdminPage() {
       </div>
 
       {activeTab === 'games' && (
-        <div className="bg-zinc-900 p-6 rounded-3xl border-2 border-zinc-700 shadow-md">
-          <div className="flex justify-between items-center mb-6 border-b-2 border-zinc-800 pb-4">
+        <div className="bg-zinc-900 p-4 sm:p-6 rounded-3xl border-2 border-zinc-700 shadow-md">
+          {/* 모바일 세로 정렬 적용 */}
+          <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-6 border-b-2 border-zinc-800 pb-4">
             <h2 className="text-2xl font-black text-zinc-100">보유 게임 ({games.length})</h2>
             <button onClick={openAddModal} className="px-5 py-2 bg-purple-900 border-2 border-purple-700 text-white rounded-lg font-bold hover:bg-purple-800 transition shadow-sm">
               ➕ 신규 게임 입고
             </button>
           </div>
 
-          {/* ✨ 추가: 게임 검색 창 */}
           <div className="mb-6">
             <input 
               type="text" 
@@ -176,7 +177,6 @@ export default function AdminPage() {
                 </tr>
               </thead>
               <tbody className="divide-y border-zinc-800">
-                {/* ✨ 수정: games.map 대신 filteredGames.map 사용 */}
                 {filteredGames.length > 0 ? (
                   filteredGames.map(game => (
                     <tr key={game.id} className="hover:bg-zinc-800/50 transition">
@@ -206,7 +206,7 @@ export default function AdminPage() {
       )}
 
       {activeTab === 'users' && (
-        <div className="bg-zinc-900 p-6 rounded-3xl border-2 border-zinc-700 shadow-md">
+        <div className="bg-zinc-900 p-4 sm:p-6 rounded-3xl border-2 border-zinc-700 shadow-md">
           <h2 className="text-2xl font-black text-zinc-100 mb-6 border-b-2 border-zinc-800 pb-4">가입된 요원 목록 ({users.length})</h2>
           
           <div className="overflow-x-auto">
@@ -241,7 +241,8 @@ export default function AdminPage() {
 
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/80 flex justify-center items-center z-50 p-4">
-          <div className="bg-zinc-900 border-2 border-zinc-700 p-8 rounded-2xl max-w-lg w-full shadow-2xl max-h-[90vh] overflow-y-auto">
+          {/* 모바일 여백(p-5)과 PC 여백(md:p-8) 분리 적용 */}
+          <div className="bg-zinc-900 border-2 border-zinc-700 p-5 md:p-8 rounded-2xl max-w-lg w-full shadow-2xl max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-black mb-6 text-zinc-100 border-b-2 border-zinc-800 pb-4">
               {editingGame ? '게임 정보 수정' : '신규 게임 입고'}
             </h2>
@@ -252,7 +253,8 @@ export default function AdminPage() {
                 <input type="text" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} className="w-full bg-zinc-800 border-2 border-zinc-600 p-3 rounded-lg text-zinc-100 outline-none focus:border-purple-600 transition" />
               </div>
               
-              <div className="grid grid-cols-3 gap-3">
+              {/* 모바일에서는 세로(grid-cols-1), PC에서는 가로 3칸(sm:grid-cols-3) 반응형 적용 */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-sm font-bold text-zinc-400 mb-1">최소 인원 *</label>
                   <input type="number" value={formData.min_players} onChange={e => setFormData({...formData, min_players: e.target.value})} className="w-full bg-zinc-800 border-2 border-zinc-600 p-3 rounded-lg text-zinc-100 outline-none focus:border-purple-600 transition" />
