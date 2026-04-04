@@ -1,40 +1,33 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
 import { useRouter, usePathname } from 'next/navigation';
+import { supabase } from '@/lib/supabase';
 
 export default function AuthGuard({ children }) {
-  const [loading, setLoading] = useState(true);
   const router = useRouter();
-  const pathname = usePathname(); // 현재 유저가 접속하려는 주소
+  const pathname = usePathname(); // ✨ 현재 서 있는 페이지 주소를 파악합니다.
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const checkUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      // ✨ 누구나 여권(로그인) 없이 들어갈 수 있는 '퍼블릭 로비' 지정
+      const publicPaths = ['/', '/login'];
 
-      // 로그인 페이지('/login')나 회원가입 페이지('/signup')는 신분증 검사 예외!
-      if (!user && pathname !== '/login' && pathname !== '/signup') {
-        // 비회원이면 뒤도 돌아보지 않고 로그인 페이지로 쫓아냅니다.
+      // 유저 정보가 없는데, 퍼블릭 로비도 아닌 곳(마이페이지, 관리자 등)에 가려고 하면 쫓아냅니다.
+      if (!session && !publicPaths.includes(pathname)) {
         router.push('/login');
-      } else {
-        // 통과
-        setLoading(false);
       }
+      setLoading(false);
     };
     
-    checkUser();
+    checkAuth();
   }, [pathname, router]);
 
-  // 검사하는 아주 짧은 찰나에 보여줄 로딩 화면 (시크릿 테마 유지)
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-zinc-950 flex justify-center items-center text-zinc-500 font-black text-xl">
-        비밀의 문을 확인하는 중... 🗝️
-      </div>
-    );
-  }
+  // 로딩 중일 때 잠깐 보여줄 화면 (깜빡임 방지)
+  if (loading) return <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-zinc-500 font-bold">신원 확인 중... 🔍</div>;
 
-  // 무사히 통과하면 원래 보려던 페이지(children)를 보여줍니다.
-  return children;
+  return <>{children}</>;
 }
