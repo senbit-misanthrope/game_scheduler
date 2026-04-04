@@ -2,7 +2,7 @@ import './globals.css';
 import AuthGuard from '@/components/AuthGuard'; // ✨ 문지기 불러오기
 
 export const metadata = {
-  title: 'Secret Agit | 시크릿 아지트',
+  title: 'Deck&Dice | 보드게임 아지트',
   description: '비밀스러운 보드게임 모임 대시보드',
 };
 
