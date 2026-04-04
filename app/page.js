@@ -52,10 +52,10 @@ export default function Home() {
     window.location.reload();
   };
 
-  // ✨ 추가: 비회원이 VIP 메뉴를 클릭할 때 페이지 이동을 막고 경고창 띄우는 센서
+  // 비회원이 VIP 메뉴를 클릭할 때 페이지 이동을 막고 경고창 띄우는 센서
   const handleProtectedLink = (e) => {
     if (!user) {
-      e.preventDefault(); // 페이지 이동(새로고침)을 강제로 막습니다.
+      e.preventDefault(); 
       alert('로그인이 필요한 기능입니다. 요원으로 합류해주세요! 🩸');
     }
   };
@@ -223,7 +223,6 @@ export default function Home() {
         <span className="text-red-600">D&D Mystery Club</span>
         </h1>
         <div className="flex flex-wrap gap-2 items-center justify-center">
-          {/* ✨ 추가: onClick={handleProtectedLink} 센서를 달아줍니다. */}
           <Link href="/leaderboard" onClick={handleProtectedLink} className="px-4 py-2 bg-zinc-800 border-2 border-zinc-700 text-amber-500 hover:bg-zinc-700 hover:border-amber-500 rounded-lg text-sm font-bold shadow-sm transition">🏆 명예의 전당</Link>
           <Link href="/recommend" onClick={handleProtectedLink} className="px-4 py-2 bg-zinc-800 border-2 border-zinc-700 text-purple-400 hover:bg-zinc-700 hover:border-purple-500 rounded-lg text-sm font-bold shadow-sm transition">🎯 맞춤 추천</Link>
           <Link href="/status" onClick={handleProtectedLink} className="px-4 py-2 bg-zinc-800 border-2 border-zinc-700 text-red-400 hover:bg-zinc-700 hover:border-red-500 rounded-lg text-sm font-bold shadow-sm transition">📊 현황판</Link>
@@ -267,7 +266,18 @@ export default function Home() {
               <div className="flex justify-between items-start mb-3">
                 <div className="flex-1 min-w-0 pr-3">
                   <div className="flex flex-wrap items-center gap-2 mb-3">
-                    <Link href={`/games/${game.id}`} onClick={(e) => e.stopPropagation()} className="text-xl font-black text-zinc-100 hover:text-red-500 transition truncate max-w-full block">
+                    {/* ✨ 수정: 게임 제목 클릭 시 비로그인 유저 방어 로직 추가 */}
+                    <Link 
+                      href={`/games/${game.id}`} 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!user) {
+                          e.preventDefault();
+                          alert('로그인이 필요한 기능입니다. 요원으로 합류해주세요! 🩸');
+                        }
+                      }} 
+                      className="text-xl font-black text-zinc-100 hover:text-red-500 transition truncate max-w-full block"
+                    >
                       {game.title}
                     </Link>
                     <span className="bg-zinc-800 text-zinc-300 text-xs px-2.5 py-1.5 rounded-md font-bold border border-zinc-600 whitespace-nowrap">
@@ -289,7 +299,6 @@ export default function Home() {
               </div>
 
               <div className="flex gap-2 border-t-2 border-zinc-800 pt-3 mt-auto" onClick={(e) => e.stopPropagation()}>
-                {/* ✨ 수정: '경험 없음' -> '플레이 안함', '경험자' -> '이미 플레이 함' */}
                 <button onClick={() => togglePlayed(game.id, false)} className={`px-4 py-2.5 rounded-lg text-xs font-bold transition border-2 flex-1 ${isPlayed ? 'bg-zinc-700 text-zinc-100 border-zinc-500' : 'bg-zinc-800 text-zinc-300 border-zinc-600 hover:bg-zinc-700 hover:border-zinc-500'}`}>
                   {isPlayed ? '🩸 이미 플레이 함' : '플레이 안함'}
                 </button>
