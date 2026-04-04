@@ -142,6 +142,13 @@ export default function StatusPage() {
   const getDisplayList = () => {
     let list = statusList.filter(s => s.roomStatus === mainTab);
     
+    // ✨ 핵심 추가: 오늘 날짜(YYYY-MM-DD) 구하기
+    // 한국 시간(KST) 기준으로 안전하게 오늘 날짜를 가져옵니다.
+    const today = new Date(new Date().getTime() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    // ✨ 핵심 추가: '오늘'을 포함한 미래의 일정만 남기기
+    list = list.filter(s => s.available_date >= today);
+    
     // 1. 기존 확정/로그인 필터
     if (mainTab === 'confirmed' && confirmedFilter === 'my') list = list.filter(s => s.mySchedule !== null);
     if (mainTab === 'waiting' && user) {
@@ -149,7 +156,7 @@ export default function StatusPage() {
       else if (playedFilter === 'played') list = list.filter(s => myPlayedGames.includes(s.game_id));
     }
 
-    // ✨ 2. 스마트 검색 필터 (게임 제목 OR 참여자 닉네임)
+    // 2. 스마트 검색 필터 (게임 제목 OR 참여자 닉네임)
     if (searchTerm.trim()) {
       const lowerSearch = searchTerm.toLowerCase();
       list = list.filter(s => 

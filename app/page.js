@@ -255,7 +255,7 @@ export default function Home() {
           <Link href="/leaderboard" onClick={handleProtectedLink} className="px-4 py-2 bg-zinc-800 border-2 border-zinc-700 text-amber-500 hover:bg-zinc-700 hover:border-amber-500 rounded-lg text-sm font-bold shadow-sm transition">🏆 명예의 전당</Link>
           <Link href="/recommend" onClick={handleProtectedLink} className="px-4 py-2 bg-zinc-800 border-2 border-zinc-700 text-purple-400 hover:bg-zinc-700 hover:border-purple-500 rounded-lg text-sm font-bold shadow-sm transition">🎯 맞춤 추천</Link>
           <Link href="/status" onClick={handleProtectedLink} className="px-4 py-2 bg-zinc-800 border-2 border-zinc-700 text-red-400 hover:bg-zinc-700 hover:border-red-500 rounded-lg text-sm font-bold shadow-sm transition">📊 현황판</Link>
-
+          <Link href="/archives" onClick={handleProtectedLink} className="px-4 py-2 bg-zinc-800 border-2 border-zinc-700 text-orange-400 hover:bg-zinc-700 hover:border-orange-500 rounded-lg text-sm font-bold shadow-sm transition">📜 기록 보관소</Link>
           {user ? (
             <div className="relative ml-2 md:border-l-2 border-zinc-800 md:pl-4">
               <button 
