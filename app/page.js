@@ -205,6 +205,21 @@ export default function Home() {
     setIsSubmitting(false);
   };
 
+  // ✨ 추가: 게임의 보유 상태에 따라 뱃지 UI를 반환하는 함수
+  const getOwnershipBadge = (status) => {
+    switch (status) {
+      case 'unowned':
+        return <span className="bg-zinc-800 text-zinc-400 text-xs px-2.5 py-1.5 rounded-md font-bold border border-zinc-600 whitespace-nowrap">👻 미보유</span>;
+      case 'online':
+        return <span className="bg-zinc-800 text-indigo-400 text-xs px-2.5 py-1.5 rounded-md font-bold border border-indigo-800 whitespace-nowrap">🌐 온라인 전용</span>;
+      case 'external':
+        return <span className="bg-zinc-800 text-orange-400 text-xs px-2.5 py-1.5 rounded-md font-bold border border-orange-800 whitespace-nowrap">🚚 외부 조달</span>;
+      case 'owned':
+      default:
+        return <span className="bg-zinc-800 text-sky-400 text-xs px-2.5 py-1.5 rounded-md font-bold border border-sky-800 whitespace-nowrap">📦 아지트 보유</span>;
+    }
+  };
+
   const filteredGames = games.filter(g => {
     if (!g.title.toLowerCase().includes(searchTerm.toLowerCase())) return false;
     if (user) {
@@ -218,7 +233,6 @@ export default function Home() {
     <div className="p-4 md:p-8 max-w-6xl mx-auto bg-zinc-950 min-h-screen text-zinc-200 font-sans selection:bg-red-900 selection:text-white">
       <div className="sticky top-0 z-40 bg-zinc-950 border-b-2 border-zinc-800 pb-4 pt-4 mb-8 flex flex-col md:flex-row justify-between items-center gap-4">
         
-        {/* ✨ 수정: 타이틀과 소셜 아이콘을 나란히 한 그룹으로 묶었습니다 */}
         <div className="flex items-center gap-4 flex-shrink-0">
           <h1 className="text-3xl font-black tracking-wider text-zinc-100">
             <span className="text-red-600">D&D Mystery Club</span>
@@ -319,6 +333,8 @@ export default function Home() {
                     >
                       {game.title}
                     </Link>
+                    {/* ✨ 추가: 게임 보유 상태 뱃지 출력 */}
+                    {getOwnershipBadge(game.ownership_status)}
                     <span className="bg-zinc-800 text-zinc-300 text-xs px-2.5 py-1.5 rounded-md font-bold border border-zinc-600 whitespace-nowrap">
                       👥 {game.min_players === game.max_players ? `${game.min_players}명` : `${game.min_players}~${game.max_players}명`}
                     </span>
