@@ -477,7 +477,7 @@ export default function Home() {
               <label className="block text-sm font-bold text-zinc-400 mb-2">당신의 역할</label>
               <select className="w-full bg-zinc-800 border-2 border-zinc-600 p-3.5 rounded-xl focus:border-red-600 text-zinc-100 outline-none font-bold transition" value={selectedRole} onChange={(e) => setSelectedRole(e.target.value)}>
                 <option value="player">일반 참가자</option>
-                <option value="gm">모임의 지배자 (GM)</option>
+                <option value="gm">게임의 운영자 (GM)</option>
               </select>
             </div>
             <div className="flex gap-3">
