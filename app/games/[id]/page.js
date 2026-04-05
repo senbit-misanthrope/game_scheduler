@@ -9,6 +9,10 @@ export default function GameDetailPage() {
   const params = useParams();
   const gameId = params.id;
   
+  // ✨ 추가: 유저 정보 및 플레이 기록 상태
+  const [user, setUser] = useState(null);
+  const [playedRecords, setPlayedRecords] = useState([]);
+  
   const [game, setGame] = useState(null);
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -24,14 +28,24 @@ export default function GameDetailPage() {
   }, [gameId]);
 
   const fetchGameDetails = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user: sessionUser } } = await supabase.auth.getUser();
     let userIsAdmin = false;
-    if (user) {
-      const { data: profile } = await supabase.from('profiles').select('is_admin').eq('id', user.id).single();
+    
+    // ✨ 수정: 로그인한 유저 정보 저장 및 해당 게임의 플레이 기록 가져오기
+    if (sessionUser) {
+      setUser(sessionUser);
+      const { data: profile } = await supabase.from('profiles').select('is_admin').eq('id', sessionUser.id).single();
       if (profile?.is_admin) {
         setIsAdmin(true);
         userIsAdmin = true;
       }
+
+      // 내 플레이 기록 가져오기
+      const { data: playedData } = await supabase.from('played_games')
+        .select('*')
+        .eq('user_id', sessionUser.id)
+        .eq('game_id', gameId);
+      setPlayedRecords(playedData || []);
     }
 
     const { data: gameData, error: gameError } = await supabase.from('games').select('*').eq('id', gameId).single();
@@ -65,6 +79,43 @@ export default function GameDetailPage() {
       setReviews([]);
     }
     setLoading(false);
+  };
+
+  // ✨ 추가: 플레이 상태 토글 함수 (메인 페이지 로직과 동일)
+  const togglePlayed = async (isGmMode) => {
+    if (!user) {
+      alert('로그인이 필요한 기능입니다. 요원으로 합류해주세요! 🩸');
+      return;
+    }
+    
+    const hasPlayed = playedRecords.some(pg => pg.is_gm === false);
+    const hasGm = playedRecords.some(pg => pg.is_gm === true);
+    const targetRecord = playedRecords.find(pg => pg.is_gm === isGmMode);
+    
+    let newPlayedRecords = [...playedRecords];
+
+    if (targetRecord) {
+      const idsToDelete = [targetRecord.id];
+      newPlayedRecords = newPlayedRecords.filter(pg => pg.id !== targetRecord.id);
+      
+      if (isGmMode === false && hasGm) {
+        const gmRecord = playedRecords.find(pg => pg.is_gm === true);
+        if (gmRecord) {
+          idsToDelete.push(gmRecord.id);
+          newPlayedRecords = newPlayedRecords.filter(pg => pg.id !== gmRecord.id);
+        }
+      }
+      setPlayedRecords(newPlayedRecords);
+      await supabase.from('played_games').delete().in('id', idsToDelete);
+    } else {
+      const insertData = [{ user_id: user.id, game_id: gameId, is_gm: isGmMode }];
+      if (isGmMode === true && !hasPlayed) {
+        insertData.push({ user_id: user.id, game_id: gameId, is_gm: false });
+      }
+      
+      const { data: inserted } = await supabase.from('played_games').insert(insertData).select();
+      if (inserted) setPlayedRecords([...playedRecords, ...inserted]);
+    }
   };
 
   const handleDeleteReview = async (reviewId) => {
@@ -117,6 +168,10 @@ export default function GameDetailPage() {
     ? (reviews.reduce((acc, curr) => acc + curr.rating, 0) / reviews.length).toFixed(1) 
     : 0;
 
+  // ✨ 추가: 현재 렌더링을 위한 플레이 상태 계산
+  const isPlayed = playedRecords.some(pg => pg.is_gm === false);
+  const isGmCapable = playedRecords.some(pg => pg.is_gm === true);
+
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto bg-zinc-950 min-h-screen text-zinc-200 font-sans selection:bg-red-900">
       <div className="mb-6">
@@ -127,7 +182,7 @@ export default function GameDetailPage() {
 
       <div className="bg-zinc-900 p-6 md:p-8 rounded-3xl shadow-md border-2 border-zinc-700 mb-10">
         
-        {/* ✨ 1층: 뱃지 & 관리자 수정 버튼 나란히 배치 */}
+        {/* 1층: 뱃지 & 관리자 수정 버튼 */}
         <div className="flex justify-between items-start gap-4 mb-5">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs px-3 py-1.5 rounded-full bg-indigo-950/70 border border-indigo-800 text-indigo-300 font-black tracking-wide shadow-sm">
@@ -147,7 +202,7 @@ export default function GameDetailPage() {
           )}
         </div>
 
-        {/* ✨ 2층: 게임 제목 & 별점 (밑줄 그어서 영역 구분) */}
+        {/* 2층: 게임 제목 & 별점 */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-5 mb-6 border-b-2 border-zinc-800/80 pb-6">
           <h1 className="text-3xl md:text-4xl font-black text-zinc-100 break-keep leading-tight">
             {game.title}
@@ -159,8 +214,8 @@ export default function GameDetailPage() {
           </div>
         </div>
 
-        {/* ✨ 3층: 게임 정보 태그들 (숫자 0 렌더링 버그 수정) */}
-        <div className="flex flex-wrap items-center gap-2.5 mb-8">
+        {/* 3층: 게임 정보 태그들 */}
+        <div className="flex flex-wrap items-center gap-2.5 mb-6">
           <span className="bg-zinc-800 text-zinc-300 text-sm px-3.5 py-2 rounded-lg font-bold border border-zinc-600 shadow-sm">
             👥 {game.min_players === game.max_players ? `${game.min_players}명` : `${game.min_players}~${game.max_players}명`}
           </span>
@@ -179,6 +234,24 @@ export default function GameDetailPage() {
               👑 진행자(GM) 필수
             </span>
           ) : null}
+        </div>
+
+        {/* ✨ 3.5층: 플레이 기록 체크 버튼들 */}
+        <div className="flex gap-3 mb-8">
+          <button 
+            onClick={() => togglePlayed(false)} 
+            className={`px-4 py-3.5 rounded-xl text-sm font-bold transition border-2 flex-1 shadow-sm ${isPlayed ? 'bg-zinc-700 text-zinc-100 border-zinc-500' : 'bg-zinc-800 text-zinc-300 border-zinc-600 hover:bg-zinc-700 hover:border-zinc-500'}`}
+          >
+            {isPlayed ? '🩸 이미 플레이 함' : '플레이 안함'}
+          </button>
+          {game.needs_gm && (
+            <button 
+              onClick={() => togglePlayed(true)} 
+              className={`px-4 py-3.5 rounded-xl text-sm font-bold transition border-2 flex-1 shadow-sm ${isGmCapable ? 'bg-purple-800 text-purple-100 border-purple-500' : 'bg-zinc-800 text-zinc-300 border-zinc-600 hover:bg-zinc-700 hover:border-zinc-500'}`}
+            >
+              {isGmCapable ? '👑 GM 가능' : 'GM 불가'}
+            </button>
+          )}
         </div>
 
         {/* 4층: 설명 구역 */}
