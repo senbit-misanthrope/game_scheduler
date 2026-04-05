@@ -15,10 +15,14 @@ export default function AdminPage() {
   const [users, setUsers] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   
+  // ✨ 추가: 카테고리 목록과 새 카테고리 입력 모드 상태
+  const [categories, setCategories] = useState(['머더 미스테리']); 
+  const [isAddingNewCategory, setIsAddingNewCategory] = useState(false);
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingGame, setEditingGame] = useState(null);
   
-  // ✨ ownership_status가 추가된 새로운 폼 데이터 구조
+  // ✨ 수정: category 기본값 추가
   const [formData, setFormData] = useState({
     title: '', 
     description: '', 
@@ -27,7 +31,8 @@ export default function AdminPage() {
     recommended_players: 8, 
     play_time: '', 
     needs_gm: false,
-    ownership_status: 'owned' // 기본값: 아지트 보유
+    ownership_status: 'owned',
+    category: '머더 미스테리' 
   });
 
   useEffect(() => {
@@ -58,7 +63,14 @@ export default function AdminPage() {
 
   const fetchGames = async () => {
     const { data } = await supabase.from('games').select('*').order('title', { ascending: true });
-    setGames(data || []);
+    const fetchedGames = data || [];
+    setGames(fetchedGames);
+
+    // ✨ 추가: 등록된 게임들에서 고유한 카테고리만 뽑아내기
+    const uniqueCategories = [...new Set(fetchedGames.map(g => g.category || '머더 미스테리'))];
+    // 기본값이 없다면 추가
+    if (!uniqueCategories.includes('머더 미스테리')) uniqueCategories.unshift('머더 미스테리');
+    setCategories(uniqueCategories);
   };
 
   const fetchUsers = async () => {
@@ -76,21 +88,28 @@ export default function AdminPage() {
 
   const openAddModal = () => {
     setEditingGame(null);
-    setFormData({ title: '', description: '', min_players: 4, max_players: 10, recommended_players: 8, play_time: '', needs_gm: false, ownership_status: 'owned' });
+    setIsAddingNewCategory(false);
+    setFormData({ 
+      title: '', description: '', min_players: 4, max_players: 10, recommended_players: 8, play_time: '', needs_gm: false, ownership_status: 'owned', 
+      category: categories[0] || '머더 미스테리' 
+    });
     setIsModalOpen(true);
   };
 
   const openEditModal = (game) => {
     setEditingGame(game);
+    setIsAddingNewCategory(false);
     setFormData({ 
         ...game,
-        ownership_status: game.ownership_status || 'owned' // 기존 데이터가 없을 경우 대비
+        ownership_status: game.ownership_status || 'owned',
+        category: game.category || '머더 미스테리'
     });
     setIsModalOpen(true);
   };
 
   const handleSaveGame = async () => {
     if (!formData.title.trim()) return alert("게임 이름을 입력해주세요!");
+    if (!formData.category.trim()) return alert("카테고리(장르)를 입력하거나 선택해주세요!");
 
     const submitData = {
       ...formData,
@@ -113,7 +132,7 @@ export default function AdminPage() {
     } else {
       alert(editingGame ? "게임 정보가 수정되었습니다." : "새로운 게임이 등록되었습니다!");
       setIsModalOpen(false);
-      fetchGames();
+      fetchGames(); // 여기서 새로운 카테고리도 자동으로 수집됨
     }
   };
 
@@ -128,7 +147,8 @@ export default function AdminPage() {
   };
 
   const filteredGames = games.filter(game => 
-    game.title.toLowerCase().includes(searchTerm.toLowerCase())
+    game.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (game.category && game.category.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   if (loading) return <div className="p-8 text-center text-lg font-bold text-zinc-400 bg-zinc-950 min-h-screen">관리자 권한을 확인하는 중...</div>;
@@ -160,7 +180,7 @@ export default function AdminPage() {
           <div className="mb-6">
             <input 
               type="text" 
-              placeholder="게임명으로 검색..." 
+              placeholder="게임명이나 장르(카테고리)로 검색..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full bg-zinc-800 border-2 border-zinc-700 p-3 rounded-xl focus:border-purple-600 outline-none text-zinc-100 placeholder-zinc-500 transition"
@@ -171,7 +191,7 @@ export default function AdminPage() {
             <table className="w-full text-left border-collapse min-w-[800px]">
               <thead>
                 <tr className="bg-zinc-800 border-y-2 border-zinc-700 text-zinc-400">
-                  <th className="p-4 font-bold">게임명</th>
+                  <th className="p-4 font-bold">게임명 (장르)</th>
                   <th className="p-4 font-bold">상태</th>
                   <th className="p-4 font-bold">인원 (최소/최대/추천)</th>
                   <th className="p-4 font-bold text-center">관리</th>
@@ -180,7 +200,15 @@ export default function AdminPage() {
               <tbody className="divide-y border-zinc-800">
                 {filteredGames.map(game => (
                   <tr key={game.id} className="hover:bg-zinc-800/50 transition">
-                    <td className="p-4 font-black text-zinc-100">{game.title}</td>
+                    <td className="p-4 font-black text-zinc-100">
+                      <div className="flex flex-col items-start gap-1.5">
+                        <span>{game.title}</span>
+                        {/* ✨ 추가: 리스트에 카테고리 뱃지 표시 */}
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-950/50 border border-indigo-800 text-indigo-300 font-bold">
+                          {game.category || '머더 미스테리'}
+                        </span>
+                      </div>
+                    </td>
                     <td className="p-4">
                         <span className="text-[10px] px-2 py-1 rounded bg-zinc-800 border border-zinc-700 text-zinc-400 font-black uppercase">
                             {game.ownership_status === 'owned' ? 'Owned' : 
@@ -191,9 +219,9 @@ export default function AdminPage() {
                     <td className="p-4 text-sm font-bold text-zinc-400">
                       {game.min_players} / {game.max_players} / <span className="text-emerald-400">{game.recommended_players}</span>
                     </td>
-                    <td className="p-4 flex justify-center gap-2">
-                      <button onClick={() => openEditModal(game)} className="px-3 py-1.5 bg-zinc-700 border border-zinc-600 text-zinc-200 rounded text-xs font-bold hover:bg-zinc-600">수정</button>
-                      <button onClick={() => handleDeleteGame(game.id, game.title)} className="px-3 py-1.5 bg-zinc-950 border border-red-900 text-red-500 rounded text-xs font-bold hover:bg-red-950">삭제</button>
+                    <td className="p-4 flex justify-center gap-2 h-full items-center">
+                      <button onClick={() => openEditModal(game)} className="px-3 py-1.5 bg-zinc-700 border border-zinc-600 text-zinc-200 rounded text-xs font-bold hover:bg-zinc-600 transition">수정</button>
+                      <button onClick={() => handleDeleteGame(game.id, game.title)} className="px-3 py-1.5 bg-zinc-950 border border-red-900 text-red-500 rounded text-xs font-bold hover:bg-red-950 transition">삭제</button>
                     </td>
                   </tr>
                 ))}
@@ -247,7 +275,50 @@ export default function AdminPage() {
                 <input type="text" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} className="w-full bg-zinc-800 border-2 border-zinc-600 p-3 rounded-lg text-zinc-100 outline-none focus:border-purple-600 transition" />
               </div>
 
-              {/* ✨ 핵심: 보유 상태 선택 드롭다운 추가 */}
+              {/* ✨ 추가: 스마트 카테고리 (장르) 선택 및 입력 폼 */}
+              <div>
+                <label className="block text-sm font-bold text-zinc-400 mb-1">카테고리 (장르) *</label>
+                {!isAddingNewCategory ? (
+                  <select 
+                    className="w-full bg-zinc-800 border-2 border-zinc-600 p-3 rounded-lg text-zinc-100 outline-none focus:border-purple-600 transition font-bold"
+                    value={formData.category}
+                    onChange={(e) => {
+                      if (e.target.value === 'NEW_CATEGORY') {
+                        setIsAddingNewCategory(true);
+                        setFormData({...formData, category: ''});
+                      } else {
+                        setFormData({...formData, category: e.target.value});
+                      }
+                    }}
+                  >
+                    {categories.map((cat, idx) => (
+                      <option key={idx} value={cat}>{cat}</option>
+                    ))}
+                    <option value="NEW_CATEGORY">➕ 새 카테고리 직접 입력...</option>
+                  </select>
+                ) : (
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      placeholder="새로운 장르 입력 (예: 방탈출, 마피아)" 
+                      value={formData.category} 
+                      onChange={e => setFormData({...formData, category: e.target.value})} 
+                      className="w-full bg-zinc-800 border-2 border-purple-600 p-3 rounded-lg text-zinc-100 outline-none transition" 
+                      autoFocus
+                    />
+                    <button 
+                      onClick={() => {
+                        setIsAddingNewCategory(false);
+                        setFormData({...formData, category: categories[0] || '머더 미스테리'});
+                      }} 
+                      className="px-4 bg-zinc-700 border-2 border-zinc-600 hover:bg-zinc-600 text-zinc-300 rounded-lg font-bold transition whitespace-nowrap"
+                    >
+                      취소
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label className="block text-sm font-bold text-zinc-400 mb-1">보유 상태 *</label>
                 <select 

@@ -13,7 +13,6 @@ export default function StatusPage() {
   const [confirmedFilter, setConfirmedFilter] = useState('all'); 
   const [playedFilter, setPlayedFilter] = useState('unplayed'); 
   
-  // ✨ 추가: 검색어 상태 관리
   const [searchTerm, setSearchTerm] = useState('');
   
   const [user, setUser] = useState(null);
@@ -56,7 +55,19 @@ export default function StatusPage() {
 
     const grouped = (schedulesData || []).reduce((acc, curr) => {
       const key = `${curr.available_date}_${curr.game_id}`;
-      if (!acc[key]) acc[key] = { ...curr, title: curr.games.title, playerCount: 0, gmCount: 0, playerNames: [], gmNames: [], applicants: [], mySchedule: null, roomStatus: 'waiting' };
+      // ✨ 카테고리 데이터 병합
+      if (!acc[key]) acc[key] = { 
+        ...curr, 
+        title: curr.games.title, 
+        category: curr.games.category, 
+        playerCount: 0, 
+        gmCount: 0, 
+        playerNames: [], 
+        gmNames: [], 
+        applicants: [], 
+        mySchedule: null, 
+        roomStatus: 'waiting' 
+      };
       
       const nickname = profileMap[curr.user_id] || '익명';
       if (curr.role_wanted === 'gm') { acc[key].gmCount++; acc[key].gmNames.push(nickname); }
@@ -142,27 +153,23 @@ export default function StatusPage() {
   const getDisplayList = () => {
     let list = statusList.filter(s => s.roomStatus === mainTab);
     
-    // ✨ 핵심 추가: 오늘 날짜(YYYY-MM-DD) 구하기
-    // 한국 시간(KST) 기준으로 안전하게 오늘 날짜를 가져옵니다.
     const today = new Date(new Date().getTime() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
-
-    // ✨ 핵심 추가: '오늘'을 포함한 미래의 일정만 남기기
     list = list.filter(s => s.available_date >= today);
     
-    // 1. 기존 확정/로그인 필터
     if (mainTab === 'confirmed' && confirmedFilter === 'my') list = list.filter(s => s.mySchedule !== null);
     if (mainTab === 'waiting' && user) {
       if (playedFilter === 'unplayed') list = list.filter(s => !myPlayedGames.includes(s.game_id));
       else if (playedFilter === 'played') list = list.filter(s => myPlayedGames.includes(s.game_id));
     }
 
-    // 2. 스마트 검색 필터 (게임 제목 OR 참여자 닉네임)
+    // ✨ 카테고리 검색 필터 허용
     if (searchTerm.trim()) {
       const lowerSearch = searchTerm.toLowerCase();
       list = list.filter(s => 
         s.title.toLowerCase().includes(lowerSearch) || 
         s.playerNames.some(name => name.toLowerCase().includes(lowerSearch)) ||
-        s.gmNames.some(name => name.toLowerCase().includes(lowerSearch))
+        s.gmNames.some(name => name.toLowerCase().includes(lowerSearch)) ||
+        (s.category && s.category.toLowerCase().includes(lowerSearch))
       );
     }
     
@@ -172,7 +179,8 @@ export default function StatusPage() {
   const getGroupedData = (list, mode) => {
     if (mode === 'game') {
       const grouped = list.reduce((acc, curr) => {
-        if (!acc[curr.game_id]) acc[curr.game_id] = { title: curr.title, schedules: [] };
+        // ✨ 그룹화할 때 카테고리 정보 유지
+        if (!acc[curr.game_id]) acc[curr.game_id] = { title: curr.title, category: curr.category, schedules: [] };
         acc[curr.game_id].schedules.push(curr);
         return acc;
       }, {});
@@ -204,11 +212,10 @@ export default function StatusPage() {
       </div>
 
       <div className="flex flex-col gap-4 mb-8 bg-zinc-900 p-5 rounded-xl border-2 border-zinc-800 shadow-sm">
-        {/* ✨ 상단: 실시간 검색바 추가 */}
         <div className="w-full">
           <input 
             type="text" 
-            placeholder="게임 제목이나 참여 요원 이름으로 검색..." 
+            placeholder="게임 제목, 장르, 참여 요원 이름으로 검색..." 
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full bg-zinc-800 border-2 border-zinc-700 p-3 rounded-xl focus:border-red-600 outline-none text-zinc-100 placeholder-zinc-500 transition"
@@ -245,7 +252,16 @@ export default function StatusPage() {
         ) : (
           displayData.map((section, idx) => (
             <div key={idx} className="bg-zinc-900 p-6 rounded-2xl border-2 border-zinc-700 shadow-md">
-              <h2 className="text-2xl font-black mb-5 border-b-2 border-zinc-800 pb-3 text-zinc-100">{viewMode === 'game' ? section.title : section.date}</h2>
+              {/* ✨ 게임별 보기일 때 그룹 타이틀 옆에 카테고리 뱃지 */}
+              <h2 className="text-2xl font-black mb-5 border-b-2 border-zinc-800 pb-3 text-zinc-100 flex items-center gap-3">
+                {viewMode === 'game' ? section.title : section.date}
+                {viewMode === 'game' && section.category && (
+                  <span className="text-xs px-2.5 py-1 rounded-full bg-indigo-950/70 border border-indigo-800 text-indigo-300 font-bold tracking-wide">
+                    {section.category}
+                  </span>
+                )}
+              </h2>
+              
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 {(viewMode === 'game' ? section.schedules : section.games).map((item, sIdx) => {
                   const hasRequiredGm = item.games.needs_gm ? item.gmCount > 0 : true;
@@ -254,24 +270,35 @@ export default function StatusPage() {
                   return (
                     <div key={sIdx} className={`p-6 rounded-xl border-2 transition flex flex-col justify-between shadow-sm ${item.roomStatus === 'confirmed' ? 'bg-emerald-950/20 border-emerald-900/50' : 'bg-zinc-950 border-zinc-700'}`}>
                       <div>
-                        <div className="flex justify-between items-start mb-2">
-                          <Link href={`/games/${item.game_id}`} className="font-black text-xl text-zinc-100 hover:text-red-400 hover:underline transition">{viewMode === 'game' ? item.available_date : item.title}</Link>
-                          {item.roomStatus === 'confirmed' && <span className="text-emerald-400 text-xs font-bold bg-emerald-950/50 border border-emerald-900/50 px-3 py-1.5 rounded-lg shadow-sm">🎉 확정</span>}
+                        <div className="flex justify-between items-start mb-4">
+                          <div className="flex flex-col gap-1.5 pr-2">
+                            {/* ✨ 날짜별 보기일 때 개별 항목 위에 카테고리 뱃지 */}
+                            {viewMode === 'date' && (
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-950/70 border border-indigo-800 text-indigo-300 font-bold w-max shadow-sm tracking-wide">
+                                {item.category || '머더 미스테리'}
+                              </span>
+                            )}
+                            <Link href={`/games/${item.game_id}`} className="font-black text-xl text-zinc-100 hover:text-red-400 hover:underline transition leading-tight">
+                              {viewMode === 'game' ? item.available_date : item.title}
+                            </Link>
+                          </div>
+                          {item.roomStatus === 'confirmed' && <span className="text-emerald-400 text-xs font-bold bg-emerald-950/50 border border-emerald-900/50 px-3 py-1.5 rounded-lg shadow-sm whitespace-nowrap">🎉 확정</span>}
                         </div>
+                        
                         <div className="flex flex-wrap gap-2 mb-4 text-xs font-bold text-zinc-400">
                           <span className="bg-zinc-800 border border-zinc-600 px-2 py-1 rounded">👥 {item.games.min_players}~{item.games.max_players}명 (현재 {item.playerCount}명)</span>
                           {item.games.needs_gm && <span className={`border px-2 py-1 rounded ${item.gmCount > 0 ? 'bg-purple-900 text-purple-300 border-purple-700' : 'bg-zinc-800 text-zinc-500 border-zinc-600'}`}>👑 GM {item.gmCount}명</span>}
                         </div>
-                        <div className="text-sm bg-zinc-900 p-4 rounded-xl mb-5 border border-zinc-800">
-                          <p className="text-blue-400 font-bold mb-2">👤 플레이어: {item.playerNames.join(', ')}</p>
-                          {item.games.needs_gm && <p className="text-purple-400 font-bold">👑 GM: {item.gmNames.length > 0 ? item.gmNames.join(', ') : '구인중 🚨'}</p>}
+                        <div className="text-sm bg-zinc-900/80 p-4 rounded-xl mb-5 border border-zinc-800/80">
+                          <p className="text-blue-400/90 font-bold mb-2">👤 플레이어: {item.playerNames.join(', ')}</p>
+                          {item.games.needs_gm && <p className="text-purple-400/90 font-bold">👑 GM: {item.gmNames.length > 0 ? item.gmNames.join(', ') : '구인중 🚨'}</p>}
                         </div>
                       </div>
 
                       <div className="flex flex-col gap-2 mt-auto">
                         {item.roomStatus === 'waiting' && (
                           item.mySchedule ? (
-                            <button onClick={() => toggleReady(item)} className={`px-4 py-3 rounded-lg font-black text-sm w-full transition border-2 ${item.mySchedule.is_ready ? 'bg-amber-600 border-amber-600 text-white' : 'bg-zinc-800 border-amber-600 text-amber-500 hover:bg-amber-900/30'}`}>
+                            <button onClick={() => toggleReady(item)} className={`px-4 py-3 rounded-lg font-black text-sm w-full transition border-2 shadow-sm ${item.mySchedule.is_ready ? 'bg-amber-600 border-amber-600 text-white' : 'bg-zinc-800 border-amber-600 text-amber-500 hover:bg-amber-900/30'}`}>
                               {item.mySchedule.is_ready ? '✓ 찬성 취소' : '👉 진행 찬성하기!'}
                             </button>
                           ) : (
@@ -279,11 +306,11 @@ export default function StatusPage() {
                           )
                         )}
                         {isAdmin && (
-                          <div className="flex gap-2 mt-3 pt-3 border-t-2 border-zinc-800">
+                          <div className="flex gap-2 mt-3 pt-3 border-t-2 border-zinc-800/80">
                             {item.roomStatus === 'waiting' ? (
-                              <button onClick={() => forceConfirm(item.available_date, item.game_id, item.title, item.applicants)} className="px-3 py-2 bg-zinc-800 border-2 border-zinc-600 text-zinc-300 rounded-lg text-xs font-bold flex-1 hover:bg-zinc-700">👑 강제 확정</button>
+                              <button onClick={() => forceConfirm(item.available_date, item.game_id, item.title, item.applicants)} className="px-3 py-2 bg-zinc-800 border-2 border-zinc-600 text-zinc-300 rounded-lg text-xs font-bold flex-1 hover:bg-zinc-700 shadow-sm">👑 강제 확정</button>
                             ) : (
-                              <button onClick={() => cancelConfirm(item.available_date, item.game_id)} className="px-3 py-2 bg-zinc-900 border-2 border-red-900/50 text-red-500 rounded-lg text-xs font-bold flex-1 hover:bg-red-950/30">👑 확정 취소</button>
+                              <button onClick={() => cancelConfirm(item.available_date, item.game_id)} className="px-3 py-2 bg-zinc-950 border-2 border-red-900/50 text-red-500 rounded-lg text-xs font-bold flex-1 hover:bg-red-950/50 shadow-sm">👑 확정 취소</button>
                             )}
                           </div>
                         )}

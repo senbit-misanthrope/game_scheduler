@@ -40,7 +40,7 @@ export default function RecommendPage() {
   const getRecommendations = async () => {
     setLoading(true);
     
-    // ✨ 최적화: Promise.all을 통해 게임/리뷰 데이터를 한 번에 가져옴
+    // ✨ DB에서 카테고리 정보도 함께 가져옴
     const [gamesRes, reviewsRes] = await Promise.all([
       supabase.from('games').select('*'),
       supabase.from('reviews').select('game_id, rating')
@@ -98,7 +98,7 @@ export default function RecommendPage() {
     <div className="p-4 md:p-8 max-w-5xl mx-auto bg-zinc-950 min-h-screen text-zinc-200 font-sans selection:bg-purple-900">
       <div className="mb-10 flex justify-between items-center border-b-2 border-zinc-800 pb-4">
         <h1 className="text-3xl font-black text-zinc-100">맞춤 게임 추천기 🎯</h1>
-        <Link href="/" className="px-5 py-2 bg-zinc-800 border-2 border-zinc-600 text-zinc-200 rounded-lg font-bold hover:bg-zinc-700 transition">
+        <Link href="/" className="px-5 py-2 bg-zinc-800 border-2 border-zinc-600 text-zinc-200 rounded-lg font-bold hover:bg-zinc-700 transition shadow-sm">
           대시보드로
         </Link>
       </div>
@@ -163,35 +163,39 @@ export default function RecommendPage() {
           ) : (
             <div className="space-y-4">
               {recommendedGames.map((game, idx) => (
-                <div key={game.id} className="bg-zinc-900 p-6 rounded-3xl shadow-sm border-2 border-zinc-700 hover:border-purple-500 transition flex items-center gap-5">
+                <div key={game.id} className="bg-zinc-900 p-6 rounded-3xl shadow-sm border-2 border-zinc-700 hover:border-purple-500 transition flex items-center gap-5 relative overflow-hidden">
                   <div className="text-3xl font-black text-zinc-700 w-12 text-center">#{idx + 1}</div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Link href={`/games/${game.id}`} className="text-2xl font-black text-zinc-100 hover:text-purple-400 hover:underline transition">
+                  <div className="flex-1 min-w-0">
+                    {/* ✨ 추가: 추천 리스트에 장르 뱃지 표시 */}
+                    <div className="mb-1.5">
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-950/70 border border-indigo-800 text-indigo-300 font-bold shadow-sm tracking-wide">
+                        {game.category || '머더 미스테리'}
+                      </span>
+                    </div>
+                    
+                    <div className="flex items-center gap-2 mb-3">
+                      <Link href={`/games/${game.id}`} className="text-2xl font-black text-zinc-100 hover:text-purple-400 hover:underline transition truncate">
                         {game.title}
                       </Link>
                       {game.avgRating > 0 && (
-                        <span className="text-amber-500 font-black text-sm drop-shadow-md">⭐ {game.avgRating.toFixed(1)}</span>
+                        <span className="text-amber-500 font-black text-sm drop-shadow-md whitespace-nowrap">⭐ {game.avgRating.toFixed(1)}</span>
                       )}
                     </div>
+                    
                     <div className="flex flex-wrap gap-2 text-xs font-bold text-zinc-400">
-                      {/* ✨ 인원수 표기 */}
-                      <span className="bg-zinc-800 border border-zinc-600 px-2.5 py-1.5 rounded-md text-zinc-300">
+                      <span className="bg-zinc-800 border border-zinc-600 px-2.5 py-1.5 rounded-md text-zinc-300 whitespace-nowrap">
                         👥 {game.min_players === game.max_players ? `${game.min_players}명` : `${game.min_players}~${game.max_players}명`}
                       </span>
-                      {/* ✨ 추천 인원 표시 */}
                       {game.recommended_players > 0 && (
-                        <span className="bg-zinc-800 border border-zinc-600 px-2.5 py-1.5 rounded-md text-emerald-400">
+                        <span className="bg-zinc-800 border border-zinc-600 px-2.5 py-1.5 rounded-md text-emerald-400 whitespace-nowrap">
                           👍 추천 {game.recommended_players}명
                         </span>
                       )}
-                      {/* ✨ 플레이 시간 표시 */}
                       {game.play_time && (
-                        <span className="bg-zinc-800 border border-zinc-600 px-2.5 py-1.5 rounded-md text-amber-400">
+                        <span className="bg-zinc-800 border border-zinc-600 px-2.5 py-1.5 rounded-md text-amber-400 whitespace-nowrap">
                           ⏳ {game.play_time}
                         </span>
                       )}
-                      {/* ✨ 추가된 GM 필수 여부 뱃지 */}
                       {game.needs_gm && (
                         <span className="bg-zinc-800 text-purple-400 px-2.5 py-1.5 rounded-md border border-purple-800 whitespace-nowrap">
                           👑 GM 필수
@@ -199,8 +203,9 @@ export default function RecommendPage() {
                       )}
                     </div>
                   </div>
-                  <div className="text-right">
-                    <span className={`px-4 py-2 rounded-lg text-xs font-black border-2 ${
+                  
+                  <div className="text-right flex-shrink-0 pl-2">
+                    <span className={`px-4 py-2 rounded-lg text-xs font-black border-2 shadow-sm whitespace-nowrap ${
                       game.priority === 1 ? 'bg-emerald-950 border-emerald-600 text-emerald-400' : 
                       game.priority === 2 ? 'bg-blue-950 border-blue-600 text-blue-400' : 'bg-zinc-800 border-zinc-600 text-zinc-300'
                     }`}>
