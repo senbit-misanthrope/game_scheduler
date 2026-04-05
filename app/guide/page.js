@@ -30,7 +30,7 @@ export default function GuidePage() {
           </h2>
           <div className="space-y-3 text-zinc-300 leading-relaxed">
             <p><span className="font-bold text-red-400">스포일러 절대 금지:</span> 머더 미스테리는 평생 단 한 번만 플레이할 수 있는 장르입니다. 범인, 트릭, 결말 등 일체의 스포일러를 금지합니다.</p>
-            <p><span className="font-bold text-emerald-400">플레이 기록 관리:</span> 한 번 플레이한 게임은 상세 페이지에서 <button className="inline-block px-2 py-0.5 mx-1 bg-zinc-800 border border-zinc-600 rounded text-xs font-bold text-zinc-100">🩸 이미 플레이 함</button> 버튼을 눌러주세요. 시스템이 자동으로 요원님의 중복 참여를 막아줍니다.</p>
+            <p><span className="font-bold text-emerald-400">플레이 기록 관리:</span> 한 번 플레이한 게임은 상세 페이지에서 <button className="inline-block px-2 py-0.5 mx-1 bg-zinc-800 border border-zinc-600 rounded text-xs font-bold text-zinc-100">🩸 플레이 안함</button> 버튼을 눌러 상태를 변경해주세요. 시스템이 자동으로 요원님의 중복 참여를 막아줍니다.</p>
           </div>
         </section>
 
