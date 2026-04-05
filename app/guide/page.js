@@ -58,7 +58,7 @@ export default function GuidePage() {
         {/* Section 3: 역할 안내 (GM) */}
         <section className="bg-zinc-900 p-6 md:p-8 rounded-3xl border-2 border-zinc-700 shadow-md">
           <h2 className="text-2xl font-black text-zinc-100 mb-4 flex items-center gap-2">
-            <span>👑</span> 03. 모임의 지배자 (GM)
+            <span>👑</span> 03. 게임 운영자 (GM)
           </h2>
           <div className="space-y-4 text-zinc-300 leading-relaxed">
             <p>

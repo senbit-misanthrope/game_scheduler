@@ -14,7 +14,6 @@ export default function Home() {
   const [playedGames, setPlayedGames] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   
-  // ✨ 추가: 카테고리 관련 상태
   const [categories, setCategories] = useState(['전체']);
   const [activeCategory, setActiveCategory] = useState('전체');
   
@@ -24,9 +23,8 @@ export default function Home() {
   const [selectedRole, setSelectedRole] = useState('player');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // 헤더 메뉴 상태 관리
   const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false); // ✨ 모바일 햄버거 메뉴 상태
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false); 
 
   useEffect(() => {
     const fetchData = async () => {
@@ -55,7 +53,6 @@ export default function Home() {
         setGames(fetchedGames);
       }
 
-      // ✨ 카테고리 목록 자동 추출 (중복 제거)
       const uniqueCategories = ['전체', ...new Set(fetchedGames.map(g => g.category || '머더 미스테리'))];
       setCategories(uniqueCategories);
     };
@@ -233,7 +230,6 @@ export default function Home() {
     }
   };
 
-  // ✨ 카테고리 및 검색 필터링 적용
   const filteredGames = games.filter(g => {
     if (activeCategory !== '전체' && (g.category || '머더 미스테리') !== activeCategory) return false;
     if (!g.title.toLowerCase().includes(searchTerm.toLowerCase())) return false;
@@ -293,12 +289,18 @@ export default function Home() {
           </div>
         </div>
 
-        {/* 2층: 네비게이션 메뉴들 */}
-        <div className="flex gap-3">
-          <Link href="/leaderboard" onClick={handleProtectedLink} className="px-5 py-2.5 bg-zinc-800 border-2 border-zinc-700 text-amber-500 hover:bg-zinc-700 hover:border-amber-500 rounded-xl text-sm font-bold shadow-sm transition">🏆 명예의 전당</Link>
-          <Link href="/recommend" onClick={handleProtectedLink} className="px-5 py-2.5 bg-zinc-800 border-2 border-zinc-700 text-purple-400 hover:bg-zinc-700 hover:border-purple-500 rounded-xl text-sm font-bold shadow-sm transition">🎯 맞춤 추천</Link>
-          <Link href="/status" onClick={handleProtectedLink} className="px-5 py-2.5 bg-zinc-800 border-2 border-zinc-700 text-red-400 hover:bg-zinc-700 hover:border-red-500 rounded-xl text-sm font-bold shadow-sm transition">📊 현황판</Link>
-          <Link href="/archives" onClick={handleProtectedLink} className="px-5 py-2.5 bg-zinc-800 border-2 border-zinc-700 text-orange-400 hover:bg-zinc-700 hover:border-orange-500 rounded-xl text-sm font-bold shadow-sm transition">📜 기록 보관소</Link>
+        {/* ✨ 2층: 네비게이션 메뉴들 (가이드 버튼 우측 정렬) */}
+        <div className="flex justify-between items-center w-full">
+          <div className="flex gap-3">
+            <Link href="/leaderboard" onClick={handleProtectedLink} className="px-5 py-2.5 bg-zinc-800 border-2 border-zinc-700 text-amber-500 hover:bg-zinc-700 hover:border-amber-500 rounded-xl text-sm font-bold shadow-sm transition">🏆 명예의 전당</Link>
+            <Link href="/recommend" onClick={handleProtectedLink} className="px-5 py-2.5 bg-zinc-800 border-2 border-zinc-700 text-purple-400 hover:bg-zinc-700 hover:border-purple-500 rounded-xl text-sm font-bold shadow-sm transition">🎯 맞춤 추천</Link>
+            <Link href="/status" onClick={handleProtectedLink} className="px-5 py-2.5 bg-zinc-800 border-2 border-zinc-700 text-red-400 hover:bg-zinc-700 hover:border-red-500 rounded-xl text-sm font-bold shadow-sm transition">📊 현황판</Link>
+            <Link href="/archives" onClick={handleProtectedLink} className="px-5 py-2.5 bg-zinc-800 border-2 border-zinc-700 text-orange-400 hover:bg-zinc-700 hover:border-orange-500 rounded-xl text-sm font-bold shadow-sm transition">📜 기록 보관소</Link>
+          </div>
+          {/* 가이드 버튼 */}
+          <Link href="/guide" className="px-5 py-2.5 bg-zinc-800 border-2 border-zinc-700 text-sky-400 hover:bg-zinc-700 hover:border-sky-500 rounded-xl text-sm font-bold shadow-sm transition">
+            📖 이용 가이드
+          </Link>
         </div>
       </div>
 
@@ -337,12 +339,13 @@ export default function Home() {
           </div>
         </div>
 
-        {/* 모바일 햄버거 메뉴 확장 영역 */}
+        {/* ✨ 모바일 햄버거 메뉴 확장 영역 (가이드 버튼 추가) */}
         {isMobileMenuOpen && (
           <div className="flex flex-col gap-2 mt-4 pt-4 border-t border-zinc-800">
             <Link href="/leaderboard" onClick={handleProtectedLink} className="px-4 py-3 bg-zinc-900 border border-zinc-700 text-amber-500 rounded-xl text-sm font-bold">🏆 명예의 전당</Link>
             <Link href="/recommend" onClick={handleProtectedLink} className="px-4 py-3 bg-zinc-900 border border-zinc-700 text-purple-400 rounded-xl text-sm font-bold">🎯 맞춤 추천</Link>
             <Link href="/archives" onClick={handleProtectedLink} className="px-4 py-3 bg-zinc-900 border border-zinc-700 text-orange-400 rounded-xl text-sm font-bold">📜 기록 보관소</Link>
+            <Link href="/guide" className="px-4 py-3 bg-zinc-900 border border-zinc-700 text-sky-400 rounded-xl text-sm font-bold">📖 이용 가이드</Link>
           </div>
         )}
       </div>
@@ -364,7 +367,7 @@ export default function Home() {
         )}
       </div>
 
-      {/* ✨ 카테고리 (장르) 필터 탭 */}
+      {/* 카테고리 (장르) 필터 탭 */}
       <div className="flex gap-2 overflow-x-auto pb-2 mb-8 scrollbar-hide">
         {categories.map((cat, idx) => (
           <button
@@ -389,7 +392,6 @@ export default function Home() {
               
               <div className="flex justify-between items-start mb-4">
                 <div className="flex-1 min-w-0 pr-4">
-                  {/* ✨ 추가: 게임 카드 상단 카테고리 뱃지 */}
                   <div className="mb-2 inline-block">
                     <span className="text-[10px] px-2.5 py-1 rounded-full bg-indigo-950/70 border border-indigo-800 text-indigo-300 font-black tracking-wide shadow-sm">
                       {game.category || '머더 미스테리'}
@@ -477,7 +479,7 @@ export default function Home() {
               <label className="block text-sm font-bold text-zinc-400 mb-2">당신의 역할</label>
               <select className="w-full bg-zinc-800 border-2 border-zinc-600 p-3.5 rounded-xl focus:border-red-600 text-zinc-100 outline-none font-bold transition" value={selectedRole} onChange={(e) => setSelectedRole(e.target.value)}>
                 <option value="player">일반 참가자</option>
-                <option value="gm">게임의 운영자 (GM)</option>
+                <option value="gm">게임 운영자 (GM)</option>
               </select>
             </div>
             <div className="flex gap-3">
