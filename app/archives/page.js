@@ -9,20 +9,34 @@ export default function ArchivesPage() {
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState('date'); 
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // ✨ 추가: 관리자 여부 확인 상태
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    fetchArchives();
+    checkAdminAndFetchArchives();
   }, []);
+
+  // ✨ 추가: 사용자 로그인 정보 및 관리자 권한 확인
+  const checkAdminAndFetchArchives = async () => {
+    const { data: { user: sessionUser } } = await supabase.auth.getUser();
+    if (sessionUser) {
+      const { data: profile } = await supabase.from('profiles').select('is_admin').eq('id', sessionUser.id).single();
+      if (profile?.is_admin) {
+        setIsAdmin(true);
+      }
+    }
+    fetchArchives();
+  };
 
   const fetchArchives = async () => {
     const today = new Date(new Date().getTime() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-    // ✨ 핵심: 상태가 'confirmed'이고, 날짜가 '오늘보다 이전'인 것만 긁어옵니다.
     const { data: schedulesData } = await supabase.from('schedules')
       .select(`*, games(*)`)
       .eq('status', 'confirmed')
       .lt('available_date', today)
-      .order('available_date', { ascending: false }); // 최신 과거부터 보여주기 위해 내림차순
+      .order('available_date', { ascending: false });
 
     const { data: profilesData } = await supabase.from('profiles').select('id, nickname');
     const profileMap = (profilesData || []).reduce((acc, p) => { acc[p.id] = p.nickname; return acc; }, {});
@@ -40,6 +54,25 @@ export default function ArchivesPage() {
 
     setArchivesList(Object.values(grouped));
     setLoading(false);
+  };
+
+  // ✨ 추가: 관리자 전용 아카이브 삭제 기능
+  const handleDeleteArchive = async (date, gameId, title) => {
+    if (!window.confirm(`[${title}] (${date}) 모임의 역사적 기록을 완전히 삭제하시겠습니까?`)) return;
+
+    // 해당 날짜, 해당 게임의 확정된 스케줄을 데이터베이스에서 일괄 삭제합니다.
+    const { error } = await supabase.from('schedules')
+      .delete()
+      .eq('available_date', date)
+      .eq('game_id', gameId)
+      .eq('status', 'confirmed');
+
+    if (!error) {
+      alert("역사 속으로 사라졌습니다. 🗑️");
+      fetchArchives(); // 목록 새로고침
+    } else {
+      alert("삭제 실패: " + error.message);
+    }
   };
 
   const getDisplayList = () => {
@@ -70,7 +103,7 @@ export default function ArchivesPage() {
         acc[curr.available_date].games.push(curr);
         return acc;
       }, {});
-      return Object.values(grouped).sort((a, b) => new Date(b.date) - new Date(a.date)); // 날짜 최신순
+      return Object.values(grouped).sort((a, b) => new Date(b.date) - new Date(a.date)); 
     }
   };
 
@@ -124,6 +157,18 @@ export default function ArchivesPage() {
                         {item.games.needs_gm && <p className="text-purple-400/80 font-bold">👑 GM: {item.gmNames.join(', ')}</p>}
                       </div>
                     </div>
+
+                    {/* ✨ 추가: 관리자일 경우에만 노출되는 삭제 버튼 */}
+                    {isAdmin && (
+                      <div className="mt-4 pt-3 border-t border-zinc-800 flex justify-end">
+                        <button 
+                          onClick={() => handleDeleteArchive(item.available_date, item.game_id, item.title)} 
+                          className="text-xs px-3 py-1.5 bg-zinc-900 border border-red-900/50 text-red-500 rounded-lg hover:bg-red-950/50 transition font-bold"
+                        >
+                          🗑️ 기록 삭제
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
