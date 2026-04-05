@@ -12,8 +12,12 @@ export default function RecommendPage() {
   const [recommendedGames, setRecommendedGames] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  // ✨ 추가: 카테고리(장르) 필터 상태
+  const [categories, setCategories] = useState(['전체']);
+  const [selectedCategory, setSelectedCategory] = useState('전체');
+
   useEffect(() => {
-    fetchUsers();
+    fetchInitialData();
   }, []);
 
   useEffect(() => {
@@ -22,9 +26,19 @@ export default function RecommendPage() {
     setSearchTerms(Array(num).fill(''));
   }, [playerCount]);
 
-  const fetchUsers = async () => {
-    const { data } = await supabase.from('profiles').select('id, nickname');
-    setUsers(data || []);
+  // ✨ 수정: 유저 정보와 함께 카테고리 목록도 한 번에 불러옵니다.
+  const fetchInitialData = async () => {
+    const [profilesRes, gamesRes] = await Promise.all([
+      supabase.from('profiles').select('id, nickname'),
+      supabase.from('games').select('category')
+    ]);
+    
+    setUsers(profilesRes.data || []);
+
+    if (gamesRes.data) {
+      const uniqueCategories = ['전체', ...new Set(gamesRes.data.map(g => g.category || '머더 미스테리'))];
+      setCategories(uniqueCategories);
+    }
   };
 
   const handleSelectUser = (index, user) => {
@@ -40,7 +54,6 @@ export default function RecommendPage() {
   const getRecommendations = async () => {
     setLoading(true);
     
-    // ✨ DB에서 카테고리 정보도 함께 가져옴
     const [gamesRes, reviewsRes] = await Promise.all([
       supabase.from('games').select('*'),
       supabase.from('reviews').select('game_id, rating')
@@ -56,12 +69,17 @@ export default function RecommendPage() {
     const gamesData = gamesRes.data || [];
     const reviewsData = reviewsRes.data || [];
 
+    // ✨ 핵심: 선택한 장르(카테고리)만 먼저 걸러냅니다.
+    const filteredGamesData = selectedCategory === '전체' 
+      ? gamesData 
+      : gamesData.filter(g => (g.category || '머더 미스테리') === selectedCategory);
+
     const selectedUserIds = slots.filter(s => s !== null).map(s => s.id);
     const { data: playedData } = await supabase.from('played_games')
       .select('game_id, user_id')
       .in('user_id', selectedUserIds);
 
-    const processedGames = gamesData.map(game => {
+    const processedGames = filteredGamesData.map(game => {
       const gameReviews = reviewsData.filter(r => r.game_id === game.id);
       const ratings = gameReviews.map(r => r.rating);
       const avgRating = ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : 0;
@@ -115,6 +133,20 @@ export default function RecommendPage() {
             />
           </div>
 
+          {/* ✨ 추가: 장르(카테고리) 선택 드롭다운 */}
+          <div className="bg-zinc-900 p-6 rounded-3xl shadow-md border-2 border-zinc-700">
+            <label className="block text-sm font-bold text-zinc-400 mb-2">선호하는 장르</label>
+            <select 
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+              className="w-full bg-zinc-800 border-2 border-zinc-600 p-3 rounded-xl focus:border-purple-500 outline-none text-zinc-100 font-bold transition cursor-pointer"
+            >
+              {categories.map((cat, idx) => (
+                <option key={idx} value={cat}>{cat}</option>
+              ))}
+            </select>
+          </div>
+
           <div className="bg-zinc-900 p-6 rounded-3xl shadow-md border-2 border-zinc-700">
             <h3 className="text-sm font-bold text-zinc-400 mb-4">참석자 명단 <span className="text-zinc-600 text-xs">(공석은 비워두세요)</span></h3>
             <div className="space-y-3">
@@ -166,7 +198,6 @@ export default function RecommendPage() {
                 <div key={game.id} className="bg-zinc-900 p-6 rounded-3xl shadow-sm border-2 border-zinc-700 hover:border-purple-500 transition flex items-center gap-5 relative overflow-hidden">
                   <div className="text-3xl font-black text-zinc-700 w-12 text-center">#{idx + 1}</div>
                   <div className="flex-1 min-w-0">
-                    {/* ✨ 추가: 추천 리스트에 장르 뱃지 표시 */}
                     <div className="mb-1.5">
                       <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-950/70 border border-indigo-800 text-indigo-300 font-bold shadow-sm tracking-wide">
                         {game.category || '머더 미스테리'}
@@ -215,8 +246,13 @@ export default function RecommendPage() {
                 </div>
               ))}
               {recommendedGames.length === 0 && !loading && (
-                <div className="text-center py-24 text-zinc-500 font-bold text-lg bg-zinc-900 border-2 border-dashed border-zinc-700 rounded-3xl">
-                  인원수를 채울 수 있는 새로운 게임이 없습니다.
+                <div className="text-center py-24 text-zinc-500 font-bold text-lg bg-zinc-900 border-2 border-dashed border-zinc-700 rounded-3xl flex flex-col gap-2 items-center justify-center">
+                  <span>해당 인원수와 장르 조건에 맞는 새로운 게임이 없습니다.</span>
+                  {selectedCategory !== '전체' && (
+                    <button onClick={() => setSelectedCategory('전체')} className="text-purple-400 hover:text-purple-300 underline text-sm mt-2 transition">
+                      '전체 장르'로 다시 검색하기
+                    </button>
+                  )}
                 </div>
               )}
             </div>
