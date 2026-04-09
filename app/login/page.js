@@ -29,9 +29,8 @@ export default function LoginPage() {
         if (error) throw error;
         router.push('/');
       } else if (mode === 'forgot') {
-        // ✨ 비밀번호 재설정 이메일 발송 로직
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: `${window.location.origin}/update-password`, // 이메일 링크 클릭 시 돌아올 주소
+          redirectTo: `${window.location.origin}/update-password`, 
         });
         if (error) throw error;
         alert('입력하신 이메일로 비밀번호 재설정 링크를 보냈습니다. 메일함을 확인해주세요!');
@@ -81,10 +80,23 @@ export default function LoginPage() {
             </div>
           )}
 
+          {/* ✨ 회원가입 모드일 때만 나타나는 강력한 보안 경고문 */}
+          {mode === 'signup' && (
+            <div className="bg-red-950/30 border border-red-900/50 p-4 rounded-xl mt-4">
+              <h4 className="text-red-500 font-black text-sm flex items-center gap-1.5 mb-2">
+                <span>🚨</span> 신입 요원 보안 수칙
+              </h4>
+              <ul className="text-xs font-bold text-zinc-400 space-y-1.5 pl-5 list-disc">
+                <li><span className="text-zinc-300">이메일:</span> 비밀번호 복구를 위해 수신 가능한 실제 주소를 입력하세요.</li>
+                <li><span className="text-red-400">비밀번호:</span> 외부 서비스와 동일한 암호는 <span className="underline decoration-red-500 decoration-2 text-red-300">절대 사용 금지</span>합니다. (보안 취약 우려)</li>
+              </ul>
+            </div>
+          )}
+
           <button 
             type="submit" 
             disabled={loading} 
-            className={`w-full py-3.5 rounded-xl font-black tracking-wide transition shadow-lg border-2 ${
+            className={`w-full py-3.5 rounded-xl font-black tracking-wide transition shadow-lg border-2 mt-2 ${
               loading ? 'bg-zinc-800 border-zinc-700 text-zinc-500 cursor-not-allowed' : 'bg-red-800 border-red-700 text-white hover:bg-red-700'
             }`}
           >
