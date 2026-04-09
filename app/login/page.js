@@ -37,7 +37,12 @@ export default function LoginPage() {
         setMode('login');
       }
     } catch (error) {
-      alert(error.message || '인증 중 오류가 발생했습니다.');
+      // ✨ 중복 가입 에러 인터셉트 및 커스텀 문구 출력
+      if (mode === 'signup' && error.message && error.message.toLowerCase().includes('already registered')) {
+        alert('이미 가입된 이메일입니다. 로그인을 하시거나 비밀번호 찾기를 하세요');
+      } else {
+        alert(error.message || '인증 중 오류가 발생했습니다.');
+      }
     } finally {
       setLoading(false);
     }
@@ -80,7 +85,6 @@ export default function LoginPage() {
             </div>
           )}
 
-          {/* ✨ 회원가입 모드일 때만 나타나는 강력한 보안 경고문 */}
           {mode === 'signup' && (
             <div className="bg-red-950/30 border border-red-900/50 p-4 rounded-xl mt-4">
               <h4 className="text-red-500 font-black text-sm flex items-center gap-1.5 mb-2">
