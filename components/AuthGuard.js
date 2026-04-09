@@ -13,8 +13,8 @@ export default function AuthGuard({ children }) {
     const checkAuth = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       
-      // ✨ 누구나 여권(로그인) 없이 들어갈 수 있는 '퍼블릭 로비' 지정 (+ 가이드 페이지 추가)
-      const publicPaths = ['/', '/login', '/guide'];
+      // ✨ 누구나 여권(로그인) 없이 들어갈 수 있는 '퍼블릭 로비' 지정 (가이드, 추천기 추가)
+      const publicPaths = ['/', '/login', '/guide', '/recommend'];
 
       // 유저 정보가 없는데, 퍼블릭 로비도 아닌 곳(마이페이지, 관리자 등)에 가려고 하면 쫓아냅니다.
       if (!session && !publicPaths.includes(pathname)) {

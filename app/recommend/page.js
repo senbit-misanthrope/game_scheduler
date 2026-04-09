@@ -5,6 +5,9 @@ import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
 
 export default function RecommendPage() {
+  // ✨ 추가: 유저 로그인 상태 확인용
+  const [user, setUser] = useState(null);
+
   const [playerCount, setPlayerCount] = useState(4);
   const [slots, setSlots] = useState(Array(4).fill(null)); 
   const [users, setUsers] = useState([]); 
@@ -17,10 +20,14 @@ export default function RecommendPage() {
 
   useEffect(() => {
     const fetchInitialData = async () => {
-      const [profilesRes, gamesRes] = await Promise.all([
+      // ✨ 로그인한 유저 정보도 함께 가져오기
+      const [authRes, profilesRes, gamesRes] = await Promise.all([
+        supabase.auth.getUser(),
         supabase.from('profiles').select('id, nickname'),
         supabase.from('games').select('category')
       ]);
+      
+      setUser(authRes.data.user || null);
       
       const fetchedUsers = profilesRes.data || [];
       setUsers(fetchedUsers);
@@ -30,7 +37,6 @@ export default function RecommendPage() {
         setCategories(uniqueCategories);
       }
 
-      // ✨ URL 파라미터를 읽어서 자동으로 검색 조건 세팅
       if (typeof window !== 'undefined') {
         const params = new URLSearchParams(window.location.search);
         const p = params.get('p');
@@ -62,17 +68,28 @@ export default function RecommendPage() {
           setSlots(targetSlots);
           setSearchTerms(targetSearchTerms);
 
-          // 조건 세팅 완료 후 즉시 추천 리스트 자동 추출
+          // URL 파라미터가 있으면 게스트/회원 상관없이 자동 검색
           getRecommendations({ p: targetP, c: targetC, slots: targetSlots });
         }
       }
     };
     
     fetchInitialData();
-  }, []); // 의존성 배열을 비워 처음에만 실행되게 함
+  }, []); 
 
-  // ✨ UX 개선: 인원수를 변경해도 기존에 입력한 참석자 이름이 날아가지 않게 보호
+  // ✨ 비회원(게스트) 조작 차단용 경고 함수
+  const checkGuest = (e) => {
+    if (!user) {
+      if (e) e.preventDefault();
+      alert("아지트 요원 전용 기능입니다. 먼저 로그인을 해주세요! 🩸");
+      return true; // 차단됨
+    }
+    return false; // 통과
+  };
+
   const handlePlayerCountChange = (e) => {
+    if (checkGuest(e)) return; // 비회원 차단
+
     const num = parseInt(e.target.value) || 0;
     setPlayerCount(num);
     
@@ -88,18 +105,19 @@ export default function RecommendPage() {
     setSearchTerms(newSearchTerms);
   };
 
-  const handleSelectUser = (index, user) => {
+  const handleSelectUser = (index, selectedUser) => {
     const newSlots = [...slots];
-    newSlots[index] = user;
+    newSlots[index] = selectedUser;
     setSlots(newSlots);
     
     const newSearch = [...searchTerms];
-    newSearch[index] = user.nickname;
+    newSearch[index] = selectedUser.nickname;
     setSearchTerms(newSearch);
   };
 
-  // ✨ 공유 링크 생성 기능
-  const handleShare = () => {
+  const handleShare = (e) => {
+    if (checkGuest(e)) return; // 비회원 차단
+
     if (typeof window === 'undefined') return;
     
     const url = new URL(window.location.origin + window.location.pathname);
@@ -110,13 +128,12 @@ export default function RecommendPage() {
     if (selectedIds) url.searchParams.set('u', selectedIds);
 
     navigator.clipboard.writeText(url.toString()).then(() => {
-      alert('🔗 추천 검색 조건이 링크로 복사되었습니다!\n원하는 곳에 붙여넣기(Ctrl+V) 하여 공유해보세요.');
+      alert('🔗 현재 검색 조건이 복사되었습니다!\n카톡이나 디스코드로 공유해보세요.');
     }).catch(() => {
-      alert('링크 복사에 실패했습니다. 브라우저 설정을 확인해주세요.');
+      alert('링크 복사에 실패했습니다.');
     });
   };
 
-  // ✨ 자동 실행을 위해 파라미터를 받을 수 있도록 진화
   const getRecommendations = async (overrideParams = null) => {
     setLoading(true);
     
@@ -130,7 +147,6 @@ export default function RecommendPage() {
     ]);
 
     if (gamesRes.error) {
-      console.error("데이터 에러:", gamesRes.error);
       alert("데이터를 불러오지 못했습니다.");
       setLoading(false);
       return;
@@ -183,15 +199,35 @@ export default function RecommendPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto bg-zinc-950 min-h-screen text-zinc-200 font-sans selection:bg-purple-900">
-      <div className="mb-10 flex justify-between items-center border-b-2 border-zinc-800 pb-4">
+      
+      {/* ✨ 레이아웃 개편: 헤더에 버튼들 우측 정렬 */}
+      <div className="mb-10 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-5 border-b-2 border-zinc-800 pb-5">
         <h1 className="text-3xl font-black text-zinc-100">맞춤 게임 추천기 🎯</h1>
-        <Link href="/" className="px-5 py-2 bg-zinc-800 border-2 border-zinc-600 text-zinc-200 rounded-lg font-bold hover:bg-zinc-700 transition shadow-sm">
-          대시보드로
-        </Link>
+        
+        <div className="flex flex-wrap items-center gap-2">
+          <button 
+            onClick={handleShare} 
+            className="px-4 py-2.5 bg-zinc-800 border-2 border-zinc-600 text-zinc-200 rounded-xl font-bold hover:bg-zinc-700 transition shadow-sm text-sm"
+          >
+            🔗 공유
+          </button>
+          <Link href="/" className="px-4 py-2.5 bg-zinc-800 border-2 border-zinc-600 text-zinc-200 rounded-xl font-bold hover:bg-zinc-700 transition shadow-sm text-sm">
+            대시보드로
+          </Link>
+          
+          {/* ✨ 비회원일 경우 로그인 버튼 추가 노출 */}
+          {!user && (
+            <Link href="/login" className="px-5 py-2.5 bg-red-700 border-2 border-red-600 text-white rounded-xl font-black hover:bg-red-600 transition shadow-sm text-sm ml-1">
+              로그인
+            </Link>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         <div className="md:col-span-1 space-y-6">
+          
+          {/* 인원수 */}
           <div className="bg-zinc-900 p-6 rounded-3xl shadow-md border-2 border-zinc-700">
             <label className="block text-sm font-bold text-zinc-400 mb-2">참여 인원수</label>
             <input 
@@ -202,11 +238,15 @@ export default function RecommendPage() {
             />
           </div>
 
+          {/* 장르 */}
           <div className="bg-zinc-900 p-6 rounded-3xl shadow-md border-2 border-zinc-700">
             <label className="block text-sm font-bold text-zinc-400 mb-2">선호하는 장르</label>
             <select 
               value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
+              onChange={(e) => {
+                if (checkGuest(e)) return;
+                setSelectedCategory(e.target.value);
+              }}
               className="w-full bg-zinc-800 border-2 border-zinc-600 p-3 rounded-xl focus:border-purple-500 outline-none text-zinc-100 font-bold transition cursor-pointer"
             >
               {categories.map((cat, idx) => (
@@ -215,6 +255,7 @@ export default function RecommendPage() {
             </select>
           </div>
 
+          {/* 명단 */}
           <div className="bg-zinc-900 p-6 rounded-3xl shadow-md border-2 border-zinc-700">
             <h3 className="text-sm font-bold text-zinc-400 mb-4">참석자 명단 <span className="text-zinc-600 text-xs">(공석은 비워두세요)</span></h3>
             <div className="space-y-3">
@@ -225,6 +266,7 @@ export default function RecommendPage() {
                     placeholder={`참석자 ${i+1} 호칭 검색`}
                     value={searchTerms[i]}
                     onChange={(e) => {
+                      if (checkGuest(e)) return;
                       const newSearch = [...searchTerms];
                       newSearch[i] = e.target.value;
                       setSearchTerms(newSearch);
@@ -239,7 +281,14 @@ export default function RecommendPage() {
                   {searchTerms[i] && !slot && (
                     <div className="absolute z-10 w-full bg-zinc-800 border-2 border-zinc-600 rounded-lg shadow-xl max-h-40 overflow-y-auto mt-1">
                       {users.filter(u => u.nickname.includes(searchTerms[i])).map(u => (
-                        <div key={u.id} onClick={() => handleSelectUser(i, u)} className="p-3 hover:bg-zinc-700 cursor-pointer text-sm font-bold text-zinc-200 transition">
+                        <div 
+                          key={u.id} 
+                          onClick={(e) => {
+                            if (checkGuest(e)) return;
+                            handleSelectUser(i, u);
+                          }} 
+                          className="p-3 hover:bg-zinc-700 cursor-pointer text-sm font-bold text-zinc-200 transition"
+                        >
                           {u.nickname}
                         </div>
                       ))}
@@ -249,20 +298,15 @@ export default function RecommendPage() {
               ))}
             </div>
             
-            {/* ✨ 추천 버튼과 공유 버튼 나란히 배치 */}
-            <div className="flex gap-2 mt-6">
+            <div className="mt-6">
               <button 
-                onClick={() => getRecommendations()}
-                className="flex-1 py-4 bg-purple-900 border-2 border-purple-700 text-white font-black tracking-wide rounded-xl hover:bg-purple-800 transition shadow-lg"
+                onClick={(e) => {
+                  if (checkGuest(e)) return;
+                  getRecommendations();
+                }}
+                className="w-full py-4 bg-purple-900 border-2 border-purple-700 text-white font-black tracking-wide rounded-xl hover:bg-purple-800 transition shadow-lg flex items-center justify-center gap-2"
               >
-                추천 리스트 뽑기 ✨
-              </button>
-              <button 
-                onClick={handleShare}
-                className="px-4 py-4 bg-zinc-800 border-2 border-zinc-600 text-zinc-200 font-black rounded-xl hover:bg-zinc-700 transition shadow-lg flex items-center justify-center whitespace-nowrap"
-                title="현재 검색 조건 링크 복사"
-              >
-                🔗 공유
+                새로운 리스트 뽑기 ✨
               </button>
             </div>
           </div>
@@ -284,7 +328,12 @@ export default function RecommendPage() {
                     </div>
                     
                     <div className="flex items-center gap-2 mb-3">
-                      <Link href={`/games/${game.id}`} className="text-2xl font-black text-zinc-100 hover:text-purple-400 hover:underline transition truncate">
+                      {/* ✨ 비회원이 게임 제목을 누를 때도 경고창 띄우기 */}
+                      <Link 
+                        href={`/games/${game.id}`} 
+                        onClick={(e) => checkGuest(e)}
+                        className="text-2xl font-black text-zinc-100 hover:text-purple-400 hover:underline transition truncate"
+                      >
                         {game.title}
                       </Link>
                       {game.avgRating > 0 && (
@@ -326,13 +375,16 @@ export default function RecommendPage() {
               ))}
               {recommendedGames.length === 0 && !loading && (
                 <div className="text-center py-24 text-zinc-500 font-bold text-lg bg-zinc-900 border-2 border-dashed border-zinc-700 rounded-3xl flex flex-col gap-2 items-center justify-center">
-                  <span>해당 인원수와 장르 조건에 맞는 새로운 게임이 없습니다.</span>
+                  <span>해당 인원수와 장르 조건에 맞는 게임이 없습니다.</span>
                   {selectedCategory !== '전체' && (
-                    <button onClick={() => {
-                      setSelectedCategory('전체');
-                      // 전체로 바꾸자마자 바로 새로 검색해주는 센스
-                      getRecommendations({ p: playerCount, c: '전체', slots: slots });
-                    }} className="text-purple-400 hover:text-purple-300 underline text-sm mt-2 transition">
+                    <button 
+                      onClick={(e) => {
+                        if (checkGuest(e)) return;
+                        setSelectedCategory('전체');
+                        getRecommendations({ p: playerCount, c: '전체', slots: slots });
+                      }} 
+                      className="text-purple-400 hover:text-purple-300 underline text-sm mt-2 transition"
+                    >
                       '전체 장르'로 다시 검색하기
                     </button>
                   )}
