@@ -12,33 +12,80 @@ export default function RecommendPage() {
   const [recommendedGames, setRecommendedGames] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // ✨ 추가: 카테고리(장르) 필터 상태
   const [categories, setCategories] = useState(['전체']);
   const [selectedCategory, setSelectedCategory] = useState('전체');
 
   useEffect(() => {
-    fetchInitialData();
-  }, []);
+    const fetchInitialData = async () => {
+      const [profilesRes, gamesRes] = await Promise.all([
+        supabase.from('profiles').select('id, nickname'),
+        supabase.from('games').select('category')
+      ]);
+      
+      const fetchedUsers = profilesRes.data || [];
+      setUsers(fetchedUsers);
 
-  useEffect(() => {
-    const num = parseInt(playerCount) || 0;
-    setSlots(Array(num).fill(null));
-    setSearchTerms(Array(num).fill(''));
-  }, [playerCount]);
+      if (gamesRes.data) {
+        const uniqueCategories = ['전체', ...new Set(gamesRes.data.map(g => g.category || '머더 미스테리'))];
+        setCategories(uniqueCategories);
+      }
 
-  // ✨ 수정: 유저 정보와 함께 카테고리 목록도 한 번에 불러옵니다.
-  const fetchInitialData = async () => {
-    const [profilesRes, gamesRes] = await Promise.all([
-      supabase.from('profiles').select('id, nickname'),
-      supabase.from('games').select('category')
-    ]);
+      // ✨ URL 파라미터를 읽어서 자동으로 검색 조건 세팅
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        const p = params.get('p');
+        const c = params.get('c');
+        const u = params.get('u');
+
+        if (p || c || u) {
+          const targetP = p ? parseInt(p) : 4;
+          const targetC = c ? c : '전체';
+          
+          let targetSlots = Array(targetP).fill(null);
+          let targetSearchTerms = Array(targetP).fill('');
+          
+          if (u && fetchedUsers.length > 0) {
+            const ids = u.split(',');
+            ids.forEach((id, index) => {
+              if (index < targetP) {
+                const foundUser = fetchedUsers.find(user => user.id === id);
+                if (foundUser) {
+                  targetSlots[index] = foundUser;
+                  targetSearchTerms[index] = foundUser.nickname;
+                }
+              }
+            });
+          }
+
+          setPlayerCount(targetP);
+          setSelectedCategory(targetC);
+          setSlots(targetSlots);
+          setSearchTerms(targetSearchTerms);
+
+          // 조건 세팅 완료 후 즉시 추천 리스트 자동 추출
+          getRecommendations({ p: targetP, c: targetC, slots: targetSlots });
+        }
+      }
+    };
     
-    setUsers(profilesRes.data || []);
+    fetchInitialData();
+  }, []); // 의존성 배열을 비워 처음에만 실행되게 함
 
-    if (gamesRes.data) {
-      const uniqueCategories = ['전체', ...new Set(gamesRes.data.map(g => g.category || '머더 미스테리'))];
-      setCategories(uniqueCategories);
+  // ✨ UX 개선: 인원수를 변경해도 기존에 입력한 참석자 이름이 날아가지 않게 보호
+  const handlePlayerCountChange = (e) => {
+    const num = parseInt(e.target.value) || 0;
+    setPlayerCount(num);
+    
+    const newSlots = Array(num).fill(null);
+    const newSearchTerms = Array(num).fill('');
+    
+    for (let i = 0; i < Math.min(num, slots.length); i++) {
+      newSlots[i] = slots[i];
+      newSearchTerms[i] = searchTerms[i];
     }
+    
+    setSlots(newSlots);
+    setSearchTerms(newSearchTerms);
   };
 
   const handleSelectUser = (index, user) => {
@@ -51,9 +98,32 @@ export default function RecommendPage() {
     setSearchTerms(newSearch);
   };
 
-  const getRecommendations = async () => {
+  // ✨ 공유 링크 생성 기능
+  const handleShare = () => {
+    if (typeof window === 'undefined') return;
+    
+    const url = new URL(window.location.origin + window.location.pathname);
+    url.searchParams.set('p', playerCount);
+    if (selectedCategory !== '전체') url.searchParams.set('c', selectedCategory);
+    
+    const selectedIds = slots.filter(s => s !== null).map(s => s.id).join(',');
+    if (selectedIds) url.searchParams.set('u', selectedIds);
+
+    navigator.clipboard.writeText(url.toString()).then(() => {
+      alert('🔗 추천 검색 조건이 링크로 복사되었습니다!\n원하는 곳에 붙여넣기(Ctrl+V) 하여 공유해보세요.');
+    }).catch(() => {
+      alert('링크 복사에 실패했습니다. 브라우저 설정을 확인해주세요.');
+    });
+  };
+
+  // ✨ 자동 실행을 위해 파라미터를 받을 수 있도록 진화
+  const getRecommendations = async (overrideParams = null) => {
     setLoading(true);
     
+    const targetPlayerCount = overrideParams ? overrideParams.p : playerCount;
+    const targetCategory = overrideParams ? overrideParams.c : selectedCategory;
+    const targetSlots = overrideParams ? overrideParams.slots : slots;
+
     const [gamesRes, reviewsRes] = await Promise.all([
       supabase.from('games').select('*'),
       supabase.from('reviews').select('game_id, rating')
@@ -69,12 +139,11 @@ export default function RecommendPage() {
     const gamesData = gamesRes.data || [];
     const reviewsData = reviewsRes.data || [];
 
-    // ✨ 핵심: 선택한 장르(카테고리)만 먼저 걸러냅니다.
-    const filteredGamesData = selectedCategory === '전체' 
+    const filteredGamesData = targetCategory === '전체' 
       ? gamesData 
-      : gamesData.filter(g => (g.category || '머더 미스테리') === selectedCategory);
+      : gamesData.filter(g => (g.category || '머더 미스테리') === targetCategory);
 
-    const selectedUserIds = slots.filter(s => s !== null).map(s => s.id);
+    const selectedUserIds = targetSlots.filter(s => s !== null).map(s => s.id);
     const { data: playedData } = await supabase.from('played_games')
       .select('game_id, user_id')
       .in('user_id', selectedUserIds);
@@ -85,15 +154,15 @@ export default function RecommendPage() {
       const avgRating = ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : 0;
       
       const playedUserIds = (playedData || []).filter(p => p.game_id === game.id).map(p => p.user_id);
-      const unplayedCount = playerCount - playedUserIds.length; 
+      const unplayedCount = targetPlayerCount - playedUserIds.length; 
 
       let priority = 4; 
       
       if (playedUserIds.length > 0) {
         priority = 4;
-      } else if (playerCount >= game.min_players && playerCount <= game.max_players) {
-        if (game.recommended_players === parseInt(playerCount)) priority = 1;
-        else if (game.max_players === parseInt(playerCount)) priority = 2;
+      } else if (targetPlayerCount >= game.min_players && targetPlayerCount <= game.max_players) {
+        if (game.recommended_players === parseInt(targetPlayerCount)) priority = 1;
+        else if (game.max_players === parseInt(targetPlayerCount)) priority = 2;
         else priority = 3;
       }
 
@@ -128,12 +197,11 @@ export default function RecommendPage() {
             <input 
               type="number" 
               value={playerCount} 
-              onChange={(e) => setPlayerCount(e.target.value)}
+              onChange={handlePlayerCountChange}
               className="w-full bg-zinc-800 border-2 border-zinc-600 p-3 rounded-xl focus:border-purple-500 outline-none text-xl font-black text-zinc-100 transition"
             />
           </div>
 
-          {/* ✨ 추가: 장르(카테고리) 선택 드롭다운 */}
           <div className="bg-zinc-900 p-6 rounded-3xl shadow-md border-2 border-zinc-700">
             <label className="block text-sm font-bold text-zinc-400 mb-2">선호하는 장르</label>
             <select 
@@ -180,12 +248,23 @@ export default function RecommendPage() {
                 </div>
               ))}
             </div>
-            <button 
-              onClick={getRecommendations}
-              className="w-full mt-6 py-4 bg-purple-900 border-2 border-purple-700 text-white font-black tracking-wide rounded-xl hover:bg-purple-800 transition shadow-lg"
-            >
-              추천 리스트 뽑기 ✨
-            </button>
+            
+            {/* ✨ 추천 버튼과 공유 버튼 나란히 배치 */}
+            <div className="flex gap-2 mt-6">
+              <button 
+                onClick={() => getRecommendations()}
+                className="flex-1 py-4 bg-purple-900 border-2 border-purple-700 text-white font-black tracking-wide rounded-xl hover:bg-purple-800 transition shadow-lg"
+              >
+                추천 리스트 뽑기 ✨
+              </button>
+              <button 
+                onClick={handleShare}
+                className="px-4 py-4 bg-zinc-800 border-2 border-zinc-600 text-zinc-200 font-black rounded-xl hover:bg-zinc-700 transition shadow-lg flex items-center justify-center whitespace-nowrap"
+                title="현재 검색 조건 링크 복사"
+              >
+                🔗 공유
+              </button>
+            </div>
           </div>
         </div>
 
@@ -249,7 +328,11 @@ export default function RecommendPage() {
                 <div className="text-center py-24 text-zinc-500 font-bold text-lg bg-zinc-900 border-2 border-dashed border-zinc-700 rounded-3xl flex flex-col gap-2 items-center justify-center">
                   <span>해당 인원수와 장르 조건에 맞는 새로운 게임이 없습니다.</span>
                   {selectedCategory !== '전체' && (
-                    <button onClick={() => setSelectedCategory('전체')} className="text-purple-400 hover:text-purple-300 underline text-sm mt-2 transition">
+                    <button onClick={() => {
+                      setSelectedCategory('전체');
+                      // 전체로 바꾸자마자 바로 새로 검색해주는 센스
+                      getRecommendations({ p: playerCount, c: '전체', slots: slots });
+                    }} className="text-purple-400 hover:text-purple-300 underline text-sm mt-2 transition">
                       '전체 장르'로 다시 검색하기
                     </button>
                   )}
