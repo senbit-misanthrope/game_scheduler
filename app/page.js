@@ -177,7 +177,8 @@ export default function Home() {
       if (error) {
         alert("서약 중 통신 오류가 발생했습니다.");
       } else {
-        for (const insert of validInserts) {
+        // ✨ 핵심 변경: 병렬 처리(Promise.all)를 통해 알림 체크 속도를 극대화했습니다.
+        const notificationPromises = validInserts.map(async (insert) => {
           const { game_id: gameId, available_date: date } = insert;
           const { data: schData } = await supabase.from('schedules').select('user_id, role_wanted').eq('game_id', gameId).eq('available_date', date).eq('status', 'waiting');
           const gameData = games.find(g => g.id === gameId);
@@ -197,7 +198,10 @@ export default function Home() {
               else sendDiscordMessage(`🔥 **추천 인원 도달!**\n게임: [${gameData.title}]\n날짜: ${date}\n현재 대기자: ${names}`);
             }
           }
-        }
+        });
+
+        // 기다림 없이 모든 알림 체크를 한 번에 실행!
+        await Promise.all(notificationPromises);
 
         let resultMsg = `${validInserts.length}개의 거사 신청이 성공적으로 완료되었습니다! 🩸\n`;
         if (failMessages.length > 0) {
@@ -484,8 +488,10 @@ export default function Home() {
             </div>
             <div className="flex gap-3">
               <button onClick={() => setIsModalOpen(false)} className="flex-1 py-3.5 bg-zinc-800 border-2 border-zinc-600 text-zinc-200 rounded-xl font-bold hover:bg-zinc-700 transition">취소</button>
+              
+              {/* ✨ 최적화: 버튼 문구에 로딩 안내 추가 */}
               <button onClick={submitSchedules} disabled={isSubmitting} className={`flex-1 py-3.5 text-white rounded-xl font-black shadow-lg transition border-2 ${isSubmitting ? 'bg-red-900 border-red-900 cursor-not-allowed' : 'bg-red-700 border-red-600 hover:bg-red-600'}`}>
-                {isSubmitting ? '서약 중...' : '서약하기'}
+                {isSubmitting ? '서약 중... (다소 소요됨 ⏳)' : '서약하기'}
               </button>
             </div>
           </div>
