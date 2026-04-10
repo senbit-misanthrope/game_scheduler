@@ -55,7 +55,6 @@ export default function StatusPage() {
 
     const grouped = (schedulesData || []).reduce((acc, curr) => {
       const key = `${curr.available_date}_${curr.game_id}`;
-      // ✨ 카테고리 데이터 병합
       if (!acc[key]) acc[key] = { 
         ...curr, 
         title: curr.games.title, 
@@ -104,6 +103,13 @@ export default function StatusPage() {
 
   const executeJoin = async (role) => {
     if (!joinModalItem) return;
+
+    // ✨ 핵심 방어 로직: 뚫고 들어오려는 중복 참가자 차단
+    if (role === 'player' && myPlayedGames.includes(joinModalItem.game_id)) {
+      alert("이미 했던 게임이라 참여할 수 없습니다.");
+      return;
+    }
+
     const { error } = await supabase.from('schedules').insert([{ 
       user_id: user.id, 
       game_id: joinModalItem.game_id, 
@@ -162,7 +168,6 @@ export default function StatusPage() {
       else if (playedFilter === 'played') list = list.filter(s => myPlayedGames.includes(s.game_id));
     }
 
-    // ✨ 카테고리 검색 필터 허용
     if (searchTerm.trim()) {
       const lowerSearch = searchTerm.toLowerCase();
       list = list.filter(s => 
@@ -179,7 +184,6 @@ export default function StatusPage() {
   const getGroupedData = (list, mode) => {
     if (mode === 'game') {
       const grouped = list.reduce((acc, curr) => {
-        // ✨ 그룹화할 때 카테고리 정보 유지
         if (!acc[curr.game_id]) acc[curr.game_id] = { title: curr.title, category: curr.category, schedules: [] };
         acc[curr.game_id].schedules.push(curr);
         return acc;
@@ -252,7 +256,6 @@ export default function StatusPage() {
         ) : (
           displayData.map((section, idx) => (
             <div key={idx} className="bg-zinc-900 p-6 rounded-2xl border-2 border-zinc-700 shadow-md">
-              {/* ✨ 게임별 보기일 때 그룹 타이틀 옆에 카테고리 뱃지 */}
               <h2 className="text-2xl font-black mb-5 border-b-2 border-zinc-800 pb-3 text-zinc-100 flex items-center gap-3">
                 {viewMode === 'game' ? section.title : section.date}
                 {viewMode === 'game' && section.category && (
@@ -272,7 +275,6 @@ export default function StatusPage() {
                       <div>
                         <div className="flex justify-between items-start mb-4">
                           <div className="flex flex-col gap-1.5 pr-2">
-                            {/* ✨ 날짜별 보기일 때 개별 항목 위에 카테고리 뱃지 */}
                             {viewMode === 'date' && (
                               <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-950/70 border border-indigo-800 text-indigo-300 font-bold w-max shadow-sm tracking-wide">
                                 {item.category || '머더 미스테리'}
@@ -327,14 +329,36 @@ export default function StatusPage() {
       {joinModalItem && (() => {
         const isPlayerFull = joinModalItem.playerCount >= joinModalItem.games.max_players;
         const isGmFull = joinModalItem.gmCount >= 1;
+        // ✨ 이미 플레이한 게임인지 확인
+        const hasPlayedAlready = myPlayedGames.includes(joinModalItem.game_id);
+
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
             <div className="bg-zinc-900 border-2 border-zinc-700 rounded-2xl w-full max-w-sm p-6 shadow-2xl">
               <h3 className="text-xl font-black text-zinc-100 mb-2 border-b-2 border-zinc-800 pb-3">[{joinModalItem.title}] 합류하기</h3>
               <p className="text-sm text-zinc-400 mb-6 font-bold">{joinModalItem.available_date} 거사에 어떤 역할로 참여하시겠습니까?</p>
               <div className="flex flex-col gap-3">
-                <button onClick={() => executeJoin('player')} disabled={isPlayerFull} className={`px-4 py-3 rounded-xl font-black text-sm w-full transition border-2 ${isPlayerFull ? 'bg-zinc-800 border-zinc-700 text-zinc-600 cursor-not-allowed' : 'bg-red-900 border-red-700 text-white hover:bg-red-800'}`}>🩸 플레이어로 참여</button>
-                {joinModalItem.games.needs_gm && <button onClick={() => executeJoin('gm')} disabled={isGmFull} className={`px-4 py-2 bg-purple-900 text-white rounded-lg font-bold`}>👑 GM으로 참여</button>}
+                
+                {/* ✨ 플레이어 버튼: 스포일러 방지 디자인 적용 */}
+                <button 
+                  onClick={() => executeJoin('player')} 
+                  disabled={isPlayerFull || hasPlayedAlready} 
+                  className={`px-4 py-3 rounded-xl font-black text-sm w-full transition border-2 ${(isPlayerFull || hasPlayedAlready) ? 'bg-zinc-800 border-zinc-700 text-zinc-500 cursor-not-allowed' : 'bg-red-900 border-red-700 text-white hover:bg-red-800'}`}
+                >
+                  {hasPlayedAlready ? '🚫 이미 플레이한 게임 (참여 불가)' : isPlayerFull ? '🩸 플레이어 마감' : '🩸 플레이어로 참여'}
+                </button>
+                
+                {/* ✨ GM 버튼: 세련된 디자인으로 업그레이드 */}
+                {joinModalItem.games.needs_gm && (
+                  <button 
+                    onClick={() => executeJoin('gm')} 
+                    disabled={isGmFull} 
+                    className={`px-4 py-3 rounded-xl font-black text-sm w-full transition border-2 ${isGmFull ? 'bg-zinc-800 border-zinc-700 text-zinc-500 cursor-not-allowed' : 'bg-purple-900 border-purple-700 text-white hover:bg-purple-800'}`}
+                  >
+                    {isGmFull ? '👑 GM 마감' : '👑 GM으로 참여'}
+                  </button>
+                )}
+                
                 <button onClick={() => setJoinModalItem(null)} className="px-4 py-3 mt-2 bg-zinc-800 border-2 border-zinc-600 text-zinc-300 rounded-xl font-bold text-sm w-full hover:bg-zinc-700 transition">✖ 취소</button>
               </div>
             </div>
