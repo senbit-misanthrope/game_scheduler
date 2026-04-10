@@ -20,9 +20,12 @@ export default function MyPage() {
   const [viewMode, setViewMode] = useState('game'); 
   const [selectedIds, setSelectedIds] = useState([]); 
 
-  // ✨ 추가: 탭별 검색어 상태 관리
-  const [scheduleSearchTerm, setScheduleSearchTerm] = useState(''); // 예정된 거사 검색용
-  const [recordSearchTerm, setRecordSearchTerm] = useState('');     // 나의 기록 검색용
+  // 탭별 검색어 상태 관리
+  const [scheduleSearchTerm, setScheduleSearchTerm] = useState(''); 
+  const [recordSearchTerm, setRecordSearchTerm] = useState('');    
+
+  // ✨ 신규: 소셜 연동 상태 저장용
+  const [identities, setIdentities] = useState([]); 
 
   useEffect(() => {
     getUserAndData();
@@ -32,6 +35,8 @@ export default function MyPage() {
     const { data: { user: sessionUser } } = await supabase.auth.getUser();
     if (sessionUser) {
       setUser(sessionUser);
+      // ✨ 유저의 연결된 소셜 계정 정보 가져오기
+      setIdentities(sessionUser.identities || []); 
       
       const [profileRes, scheduleRes, playedRes] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', sessionUser.id).single(),
@@ -54,6 +59,25 @@ export default function MyPage() {
       setPlayedGames(playedRes.data || []);
     }
     setLoading(false);
+  };
+
+  // ✨ 신규: 이미 연동된 소셜 계정인지 확인
+  const isLinked = (provider) => {
+    return identities.some(identity => identity.provider === provider);
+  };
+
+  // ✨ 신규: 소셜 계정 연동 실행
+  const handleLinkIdentity = async (provider) => {
+    const { error } = await supabase.auth.linkIdentity({
+      provider: provider,
+      options: {
+        redirectTo: `${window.location.origin}/mypage`, 
+      }
+    });
+
+    if (error) {
+      alert(`${provider} 연동 중 오류가 발생했습니다: ` + error.message);
+    }
   };
 
   const handleSaveNickname = async () => {
@@ -133,7 +157,6 @@ export default function MyPage() {
     setPlayedGames(data || []);
   };
 
-  // ✨ 예정된 거사 필터링 (서브탭 + 검색어)
   const filteredMySchedules = mySchedules.filter(s => {
     const matchesTab = s.status === scheduleSubTab;
     const matchesSearch = s.games?.title.toLowerCase().includes(scheduleSearchTerm.toLowerCase());
@@ -157,7 +180,6 @@ export default function MyPage() {
   }, {});
   const datesArray = Object.values(groupedByDate).sort((a, b) => new Date(a.date) - new Date(b.date));
 
-  // ✨ 나의 기록 필터링 (검색어)
   const filteredPlayedGames = Object.values(playedGames.reduce((acc, curr) => {
     if (!curr.games) return acc; 
     const gId = curr.games.id;
@@ -178,7 +200,43 @@ export default function MyPage() {
         <Link href="/" className="px-5 py-2 bg-zinc-800 border-2 border-zinc-600 text-zinc-200 rounded-lg font-bold hover:bg-zinc-700 transition">대시보드로</Link>
       </div>
 
-      {/* 호칭 설정 섹션 */}
+      {/* ✨ 신규: 소셜 계정 연동 섹션 */}
+      <div className="bg-zinc-900 p-6 rounded-2xl border-2 border-zinc-700 mb-8 shadow-md">
+        <h3 className="text-xl font-black text-zinc-100 border-b-2 border-zinc-800 pb-3 mb-4 flex items-center gap-2">
+          🔗 소셜 계정 연동
+        </h3>
+        <p className="text-sm text-zinc-400 mb-6 font-bold">
+          카카오나 Google 계정을 연결해두면 다음부터 이메일과 비밀번호 입력 없이 터치 한 번으로 아지트에 들어올 수 있습니다.
+        </p>
+
+        <div className="flex flex-col md:flex-row gap-4">
+          <button 
+            onClick={() => handleLinkIdentity('kakao')}
+            disabled={isLinked('kakao')}
+            className={`flex-1 flex items-center justify-center gap-2 py-3.5 rounded-xl font-black transition border-2 ${
+              isLinked('kakao') 
+                ? 'bg-zinc-800 border-zinc-700 text-zinc-500 cursor-not-allowed' 
+                : 'bg-[#FEE500] border-[#F4DC00] hover:bg-[#E6CF00] text-[#3A1D1D] shadow-md'
+            }`}
+          >
+            {isLinked('kakao') ? '✅ 카카오 연동 완료' : '🟡 카카오 계정 연결하기'}
+          </button>
+
+          <button 
+            onClick={() => handleLinkIdentity('google')}
+            disabled={isLinked('google')}
+            className={`flex-1 flex items-center justify-center gap-2 py-3.5 rounded-xl font-black transition border-2 ${
+              isLinked('google') 
+                ? 'bg-zinc-800 border-zinc-700 text-zinc-500 cursor-not-allowed' 
+                : 'bg-white border-gray-300 hover:bg-gray-100 text-gray-800 shadow-md'
+            }`}
+          >
+            {isLinked('google') ? '✅ Google 연동 완료' : '⚪ Google 계정 연결하기'}
+          </button>
+        </div>
+      </div>
+
+      {/* 기존: 호칭 설정 섹션 */}
       <div className="bg-zinc-900 p-6 rounded-2xl border-2 border-zinc-700 mb-8 flex flex-col sm:flex-row sm:items-end gap-4 shadow-md">
         <div className="flex-1">
           <label className="block text-sm font-bold text-zinc-300 mb-2">아지트에서 사용할 호칭 (예: 쎈빛)</label>
@@ -187,7 +245,7 @@ export default function MyPage() {
         <button onClick={handleSaveNickname} className="w-full sm:w-auto px-8 py-3 bg-zinc-800 border-2 border-red-700 text-red-400 font-black rounded-xl hover:bg-red-900 hover:text-white transition shadow-sm">호칭 각인</button>
       </div>
 
-      {/* 메인 탭 */}
+      {/* 기존: 메인 탭 */}
       <div className="flex gap-4 mb-8 bg-zinc-900 p-2 rounded-2xl border-2 border-zinc-700 overflow-x-auto shadow-sm">
         <button onClick={() => setActiveMainTab('schedules')} className={`flex-1 min-w-[120px] px-6 py-3 rounded-xl font-bold transition border-2 ${activeMainTab === 'schedules' ? 'bg-zinc-800 border-zinc-500 text-white' : 'border-transparent text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'}`}>📅 예정된 거사</button>
         <button onClick={() => setActiveMainTab('records')} className={`flex-1 min-w-[120px] px-6 py-3 rounded-xl font-bold transition border-2 ${activeMainTab === 'records' ? 'bg-red-900 border-red-600 text-white' : 'border-transparent text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'}`}>📖 나의 핏빛 기록</button>
@@ -200,7 +258,6 @@ export default function MyPage() {
             <button onClick={() => setScheduleSubTab('confirmed')} className={`px-4 py-2 text-lg font-black transition ${scheduleSubTab === 'confirmed' ? 'text-emerald-400 border-b-2 border-emerald-500' : 'text-zinc-500 hover:text-zinc-300'}`}>🎉 확정됨</button>
           </div>
 
-          {/* ✨ 예정된 거사 검색바 */}
           <div className="mb-6">
             <input 
               type="text" 
@@ -297,7 +354,9 @@ export default function MyPage() {
   );
 }
 
-// RenderRow 및 RecordCard 컴포넌트 생략 (이전과 동일)
+// -------------------------------------------------------------------------------------------------
+// RenderRow 및 RecordCard 컴포넌트 (이전과 동일)
+// -------------------------------------------------------------------------------------------------
 function RenderRow({ item, label, isSelected, onToggle, allSchedules, viewMode, refreshData }) {
   const [showRate, setShowRate] = useState(false);
   const [rating, setRating] = useState(5);
