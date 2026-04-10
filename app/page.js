@@ -17,6 +17,10 @@ export default function Home() {
   const [categories, setCategories] = useState(['전체']);
   const [activeCategory, setActiveCategory] = useState('전체');
   
+  // ✨ 신규: 인원수 필터 상태 추가
+  const [playerCountFilter, setPlayerCountFilter] = useState('전체');
+  const playerCounts = ['전체', '1인', '2인', '3인', '4인', '5인', '6인', '7인', '8인 이상'];
+  
   const [selectedGameIds, setSelectedGameIds] = useState([]); 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedDates, setSelectedDates] = useState([]); 
@@ -29,7 +33,6 @@ export default function Home() {
   useEffect(() => {
     const fetchData = async () => {
       const { data: authData } = await supabase.auth.getUser();
-      
       let fetchedGames = [];
 
       if (authData?.user) {
@@ -76,7 +79,6 @@ export default function Home() {
       alert('아지트 요원만 모임을 소집할 수 있습니다. 로그인을 먼저 해주세요! 🩸');
       return;
     }
-
     if (selectedGameIds.includes(gameId)) {
       setSelectedGameIds(selectedGameIds.filter(id => id !== gameId));
     } else {
@@ -89,7 +91,6 @@ export default function Home() {
       alert('로그인이 필요한 기능입니다. 요원으로 합류해주세요! 🩸');
       return;
     }
-    
     const gameRecords = playedGames.filter(pg => pg.game_id === gameId);
     const hasPlayed = gameRecords.some(pg => pg.is_gm === false);
     const hasGm = gameRecords.some(pg => pg.is_gm === true);
@@ -115,7 +116,6 @@ export default function Home() {
       if (isGmMode === true && !hasPlayed) {
         insertData.push({ user_id: user.id, game_id: gameId, is_gm: false });
       }
-      
       const { data: inserted } = await supabase.from('played_games').insert(insertData).select();
       if (inserted) setPlayedGames([...playedGames, ...inserted]);
     }
@@ -153,7 +153,6 @@ export default function Home() {
           failMessages.push(`[${date}] ${gameInfo.title} (중복 신청)`);
           continue;
         }
-
         const schedulesForThis = allSchedules?.filter(s => s.game_id === gameId && s.available_date === date) || [];
         const pCount = schedulesForThis.filter(s => s.role_wanted === 'player').length;
         const gmCount = schedulesForThis.filter(s => s.role_wanted === 'gm').length;
@@ -166,14 +165,12 @@ export default function Home() {
           failMessages.push(`[${date}] ${gameInfo.title} (정원 마감)`);
           continue;
         }
-
         validInserts.push({ user_id: user.id, game_id: gameId, available_date: date, role_wanted: selectedRole });
       }
     }
 
     if (validInserts.length > 0) {
       const { error } = await supabase.from('schedules').insert(validInserts);
-      
       if (error) {
         alert("서약 중 통신 오류가 발생했습니다.");
       } else {
@@ -198,15 +195,10 @@ export default function Home() {
             }
           }
         });
-
         await Promise.all(notificationPromises);
-
         let resultMsg = `${validInserts.length}개의 거사 신청이 성공적으로 완료되었습니다! 🩸\n`;
-        if (failMessages.length > 0) {
-          resultMsg += `\n❌ 아래 일정은 정원 초과 등으로 튕겨냈습니다:\n- ` + failMessages.join('\n- ');
-        }
+        if (failMessages.length > 0) resultMsg += `\n❌ 아래 일정은 정원 초과 등으로 튕겨냈습니다:\n- ` + failMessages.join('\n- ');
         alert(resultMsg);
-        
         setIsModalOpen(false);
         setSelectedGameIds([]);
         setSelectedDates([]);
@@ -214,174 +206,175 @@ export default function Home() {
     } else {
       alert(`신청 가능한 일정이 없습니다.\n\n❌ 거부 사유:\n- ` + failMessages.join('\n- '));
     }
-
     setIsSubmitting(false);
   };
 
   const getOwnershipBadge = (status) => {
     switch (status) {
-      case 'unowned':
-        return <span className="bg-zinc-800 text-zinc-400 text-xs px-2.5 py-1.5 rounded-md font-bold border border-zinc-600 whitespace-nowrap">👻 미보유</span>;
-      case 'online':
-        return <span className="bg-zinc-800 text-indigo-400 text-xs px-2.5 py-1.5 rounded-md font-bold border border-indigo-800 whitespace-nowrap">🌐 온라인 전용</span>;
-      case 'external':
-        return <span className="bg-zinc-800 text-orange-400 text-xs px-2.5 py-1.5 rounded-md font-bold border border-orange-800 whitespace-nowrap">🚚 외부 조달</span>;
-      case 'owned':
-      default:
-        return <span className="bg-zinc-800 text-sky-400 text-xs px-2.5 py-1.5 rounded-md font-bold border border-sky-800 whitespace-nowrap">📦 아지트 보유</span>;
+      case 'unowned': return <span className="bg-zinc-800 text-zinc-400 text-xs px-2.5 py-1.5 rounded-md font-bold border border-zinc-600 whitespace-nowrap">👻 미보유</span>;
+      case 'online': return <span className="bg-zinc-800 text-indigo-400 text-xs px-2.5 py-1.5 rounded-md font-bold border border-indigo-800 whitespace-nowrap">🌐 온라인 전용</span>;
+      case 'external': return <span className="bg-zinc-800 text-orange-400 text-xs px-2.5 py-1.5 rounded-md font-bold border border-orange-800 whitespace-nowrap">🚚 외부 조달</span>;
+      case 'owned': default: return <span className="bg-zinc-800 text-sky-400 text-xs px-2.5 py-1.5 rounded-md font-bold border border-sky-800 whitespace-nowrap">📦 아지트 보유</span>;
     }
   };
 
+  // ✨ 기존 필터에 인원수 필터 로직 추가
   const filteredGames = games.filter(g => {
+    // 1. 카테고리 필터
     if (activeCategory !== '전체' && (g.category || '머더 미스테리') !== activeCategory) return false;
+    // 2. 검색어 필터
     if (!g.title.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+    // 3. 기플레이 필터
     if (user) {
       const hasPlayed = playedGames.some(pg => pg.game_id === g.id && pg.is_gm === false);
       if (hasPlayed && !g.needs_gm) return false; 
+    }
+    // 4. ✨ 신규: 인원수 필터
+    if (playerCountFilter !== '전체') {
+      const targetCount = parseInt(playerCountFilter.replace(/[^0-9]/g, ''));
+      if (playerCountFilter === '8인 이상') {
+        if (g.max_players < 8) return false;
+      } else {
+        if (targetCount < g.min_players || targetCount > g.max_players) return false;
+      }
     }
     return true;
   });
 
   return (
-    // ✨ 부모 컨테이너 패딩 수정 (상단 pt를 빼서 컨트롤 센터가 맨 위부터 붙게 만듭니다)
-    <div className="px-4 md:px-8 pb-8 max-w-6xl mx-auto bg-zinc-950 min-h-screen text-zinc-200 font-sans selection:bg-red-900 selection:text-white">
+    <div className="px-4 md:px-8 pb-8 max-w-7xl mx-auto bg-zinc-950 min-h-screen text-zinc-200 font-sans selection:bg-red-900 selection:text-white">
       
       {/* =========================================
-          🚀 ✨ 확장된 상단 고정 컨트롤 센터 (Sticky Control Center)
+          🚀 ✨ 3층 구조로 최적화된 상단 컨트롤 센터 (Sticky)
       ========================================= */}
-      <div className="sticky top-0 z-40 bg-zinc-950/95 backdrop-blur-md pt-4 md:pt-8 pb-4 mb-8 border-b-2 border-zinc-800 shadow-sm">
+      <div className="sticky top-0 z-40 bg-zinc-950/95 backdrop-blur-md pt-4 pb-4 mb-6 border-b-2 border-zinc-800">
         
-        {/* 🖥️ PC 전용 헤더 */}
-        <div className="hidden md:flex flex-col gap-5 pb-4 mb-4 border-b border-zinc-800/80">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-4">
-              <h1 className="text-3xl font-black tracking-wider text-zinc-100">
-                <span className="text-red-600">D&D Mystery Club</span>
-              </h1>
-              <div className="flex gap-2">
-                <a href="https://discord.gg/WhSn6M6fGM" target="_blank" rel="noopener noreferrer" className="w-10 h-10 bg-[#5865F2] hover:bg-[#4752C4] rounded-lg shadow-sm transition flex items-center justify-center text-white" title="디스코드 합류">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="M13.545 2.907a13.227 13.227 0 0 0-3.257-1.011.05.05 0 0 0-.052.025c-.141.25-.297.577-.406.833a12.19 12.19 0 0 0-3.658 0 8.258 8.258 0 0 0-.412-.833.051.051 0 0 0-.052-.025c-1.125.194-2.22.534-3.257 1.011a.041.041 0 0 0-.021.018C.356 6.024-.213 9.047.066 12.032c.001.014.01.028.021.037a13.276 13.276 0 0 0 3.995 2.02.05.05 0 0 0 .056-.019c.308-.42.582-.863.818-1.329a.05.05 0 0 0-.01-.059.051.051 0 0 0-.018-.011 8.875 8.875 0 0 1-1.248-.595.05.05 0 0 1-.02-.066.051.051 0 0 1 .015-.019c.084-.063.168-.129.248-.195a.05.05 0 0 1 .051-.007c2.619 1.196 5.454 1.196 8.041 0a.052.052 0 0 1 .053.007c.08.066.164.132.248.195a.051.051 0 0 1-.004.085 8.254 8.254 0 0 1-1.249.594.05.05 0 0 0-.03.03.052.052 0 0 0 .003.041c.24.465.515.909.817 1.329a.05.05 0 0 0 .056.019 13.235 13.235 0 0 0 4.001-2.02.049.049 0 0 0 .021-.037c.334-3.451-.559-6.449-2.366-9.106a.034.034 0 0 0-.02-.019Zm-8.198 7.307c-.789 0-1.438-.724-1.438-1.612 0-.889.637-1.613 1.438-1.613.807 0 1.45.73 1.438 1.613 0 .888-.637 1.612-1.438 1.612Zm5.316 0c-.788 0-1.438-.724-1.438-1.612 0-.889.637-1.613 1.438-1.613.807 0 1.45.73 1.438 1.613 0 .888-.631 1.612-1.438 1.612Z"/></svg>
-                </a>
-                <a href="https://open.kakao.com/o/g6Ed6UPh" target="_blank" rel="noopener noreferrer" className="w-10 h-10 bg-[#FEE500] hover:bg-[#F4DC00] rounded-lg shadow-sm transition flex items-center justify-center text-[#3A1D1D]" title="카카오톡 오픈채팅">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="M8 0C3.582 0 0 2.82 0 6.3c0 2.247 1.516 4.225 3.86 5.378-.184.662-.667 2.404-.716 2.593-.062.242.083.24.234.14 1.18-.77 2.805-1.923 3.32-2.316.425.044.863.068 1.302.068 4.418 0 8-2.82 8-6.3S12.418 0 8 0z"/></svg>
-                </a>
-              </div>
-            </div>
-            <div>
-              {user ? (
-                <div className="relative">
-                  <button 
-                    onClick={() => setIsProfileOpen(!isProfileOpen)}
-                    className="px-5 py-2.5 bg-zinc-800 border-2 border-zinc-600 text-zinc-200 rounded-xl text-sm font-bold hover:bg-zinc-700 transition flex items-center gap-2 shadow-sm"
-                  >
-                    {profile?.nickname || '익명'} 👤
-                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16" className={`transition-transform duration-200 ${isProfileOpen ? 'rotate-180' : ''}`}><path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z"/></svg>
-                  </button>
-                  {isProfileOpen && (
-                    <>
-                      <div className="fixed inset-0 z-40" onClick={() => setIsProfileOpen(false)}></div>
-                      <div className="absolute right-0 mt-2 w-48 bg-zinc-900 border-2 border-zinc-700 rounded-xl shadow-2xl overflow-hidden z-50 flex flex-col">
-                        {isAdmin && <Link href="/admin" className="px-4 py-3 border-b border-zinc-800 text-sm font-bold text-zinc-200 hover:bg-zinc-800 transition text-left" onClick={() => setIsProfileOpen(false)}>👑 관리자</Link>}
-                        <Link href="/mypage" className="px-4 py-3 border-b border-zinc-800 text-sm font-bold text-zinc-200 hover:bg-zinc-800 transition text-left" onClick={() => setIsProfileOpen(false)}>👤 마이페이지</Link>
-                        <button onClick={handleLogout} className="px-4 py-3 text-sm font-bold text-red-500 hover:bg-zinc-800 transition text-left">🚪 로그아웃</button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              ) : (
-                <Link href="/login" className="px-6 py-2.5 bg-red-700 text-white rounded-xl font-bold hover:bg-red-600 shadow-md transition">로그인</Link>
-              )}
-            </div>
-          </div>
-
-          <div className="flex justify-between items-center w-full">
-            <div className="flex gap-3">
-              <Link href="/leaderboard" onClick={handleProtectedLink} className="px-5 py-2.5 bg-zinc-800 border-2 border-zinc-700 text-amber-500 hover:bg-zinc-700 hover:border-amber-500 rounded-xl text-sm font-bold shadow-sm transition">🏆 명예의 전당</Link>
-              <Link href="/recommend" onClick={handleProtectedLink} className="px-5 py-2.5 bg-zinc-800 border-2 border-zinc-700 text-purple-400 hover:bg-zinc-700 hover:border-purple-500 rounded-xl text-sm font-bold shadow-sm transition">🎯 맞춤 추천</Link>
-              <Link href="/status" onClick={handleProtectedLink} className="px-5 py-2.5 bg-zinc-800 border-2 border-zinc-700 text-red-400 hover:bg-zinc-700 hover:border-red-500 rounded-xl text-sm font-bold shadow-sm transition">📊 현황판</Link>
-              <Link href="/archives" onClick={handleProtectedLink} className="px-5 py-2.5 bg-zinc-800 border-2 border-zinc-700 text-orange-400 hover:bg-zinc-700 hover:border-orange-500 rounded-xl text-sm font-bold shadow-sm transition">📜 기록 보관소</Link>
-            </div>
-            <Link href="/guide" className="px-5 py-2.5 bg-zinc-800 border-2 border-zinc-700 text-sky-400 hover:bg-zinc-700 hover:border-sky-500 rounded-xl text-sm font-bold shadow-sm transition">
-              📖 이용 가이드
-            </Link>
-          </div>
-        </div>
-
-        {/* 📱 모바일 전용 헤더 */}
-        <div className="flex md:hidden flex-col pb-3 mb-4 border-b border-zinc-800/80">
-          <div className="flex justify-between items-center">
-            <h1 className="text-xl font-black tracking-wider text-zinc-100 flex-shrink-0">
-              <span className="text-red-600">D&D</span> Club
+        {/* 🏢 [1층] 글로벌 & 유저 정보 (가장 상단, 얇게) */}
+        <div className="flex justify-between items-center mb-4 pb-2 border-b border-zinc-800/50">
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl md:text-2xl font-black tracking-tighter text-zinc-100 flex items-center gap-2">
+              <span className="text-red-600">D&D</span> <span className="hidden sm:inline">Mystery Club</span>
             </h1>
-            <div className="flex items-center gap-2">
-              <Link href="/status" onClick={handleProtectedLink} className="px-3 py-2 bg-zinc-800 border border-zinc-700 text-red-400 rounded-lg text-xs font-bold whitespace-nowrap shadow-sm">📊 현황판</Link>
-              
-              {user ? (
-                <div className="relative">
-                  <button onClick={() => setIsProfileOpen(!isProfileOpen)} className="p-2 bg-zinc-800 border border-zinc-700 text-zinc-200 rounded-lg text-sm flex items-center justify-center shadow-sm">👤</button>
-                  {isProfileOpen && (
-                    <>
-                      <div className="fixed inset-0 z-40" onClick={() => setIsProfileOpen(false)}></div>
-                      <div className="absolute right-0 mt-2 w-40 bg-zinc-900 border-2 border-zinc-700 rounded-xl shadow-2xl overflow-hidden z-50 flex flex-col">
-                        {isAdmin && <Link href="/admin" className="px-4 py-3 border-b border-zinc-800 text-sm font-bold text-zinc-200" onClick={() => setIsProfileOpen(false)}>👑 관리자</Link>}
-                        <Link href="/mypage" className="px-4 py-3 border-b border-zinc-800 text-sm font-bold text-zinc-200" onClick={() => setIsProfileOpen(false)}>👤 마이페이지</Link>
-                        <button onClick={handleLogout} className="px-4 py-3 text-sm font-bold text-red-500 text-left">🚪 로그아웃</button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              ) : (
-                <Link href="/login" className="px-3 py-2 bg-red-700 text-white rounded-lg text-xs font-bold shadow-sm whitespace-nowrap">로그인</Link>
-              )}
+            <div className="hidden md:flex gap-1.5 border-l border-zinc-700 pl-3">
+              <a href="https://discord.gg/WhSn6M6fGM" target="_blank" rel="noopener noreferrer" className="w-7 h-7 bg-[#5865F2] hover:bg-[#4752C4] rounded transition flex items-center justify-center text-white" title="디스코드">
+                <svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M13.545 2.907a13.227 13.227 0 0 0-3.257-1.011.05.05 0 0 0-.052.025c-.141.25-.297.577-.406.833a12.19 12.19 0 0 0-3.658 0 8.258 8.258 0 0 0-.412-.833.051.051 0 0 0-.052-.025c-1.125.194-2.22.534-3.257 1.011a.041.041 0 0 0-.021.018C.356 6.024-.213 9.047.066 12.032c.001.014.01.028.021.037a13.276 13.276 0 0 0 3.995 2.02.05.05 0 0 0 .056-.019c.308-.42.582-.863.818-1.329a.05.05 0 0 0-.01-.059.051.051 0 0 0-.018-.011 8.875 8.875 0 0 1-1.248-.595.05.05 0 0 1-.02-.066.051.051 0 0 1 .015-.019c.084-.063.168-.129.248-.195a.05.05 0 0 1 .051-.007c2.619 1.196 5.454 1.196 8.041 0a.052.052 0 0 1 .053.007c.08.066.164.132.248.195a.051.051 0 0 1-.004.085 8.254 8.254 0 0 1-1.249.594.05.05 0 0 0-.03.03.052.052 0 0 0 .003.041c.24.465.515.909.817 1.329a.05.05 0 0 0 .056.019 13.235 13.235 0 0 0 4.001-2.02.049.049 0 0 0 .021-.037c.334-3.451-.559-6.449-2.366-9.106a.034.034 0 0 0-.02-.019Zm-8.198 7.307c-.789 0-1.438-.724-1.438-1.612 0-.889.637-1.613 1.438-1.613.807 0 1.45.73 1.438 1.613 0 .888-.637 1.612-1.438 1.612Zm5.316 0c-.788 0-1.438-.724-1.438-1.612 0-.889.637-1.613 1.438-1.613.807 0 1.45.73 1.438 1.613 0 .888-.631 1.612-1.438 1.612Z"/></svg>
+              </a>
+              <a href="https://open.kakao.com/o/g6Ed6UPh" target="_blank" rel="noopener noreferrer" className="w-7 h-7 bg-[#FEE500] hover:bg-[#F4DC00] rounded transition flex items-center justify-center text-[#3A1D1D]" title="카카오톡">
+                <svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M8 0C3.582 0 0 2.82 0 6.3c0 2.247 1.516 4.225 3.86 5.378-.184.662-.667 2.404-.716 2.593-.062.242.083.24.234.14 1.18-.77 2.805-1.923 3.32-2.316.425.044.863.068 1.302.068 4.418 0 8-2.82 8-6.3S12.418 0 8 0z"/></svg>
+              </a>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-3">
+            {/* ✨ 우측으로 붙은 이용가이드 */}
+            <Link href="/guide" className="hidden sm:flex text-xs font-bold px-3 py-1.5 bg-zinc-900 border border-zinc-700 text-sky-400 rounded hover:border-sky-500 transition">📖 이용 가이드</Link>
+            
+            {user ? (
+              <div className="relative">
+                <button onClick={() => setIsProfileOpen(!isProfileOpen)} className="px-3 py-1.5 bg-zinc-800 border border-zinc-600 text-zinc-200 rounded text-xs font-black hover:bg-zinc-700 transition flex items-center gap-1.5">
+                  {profile?.nickname || '익명'} 👤
+                </button>
+                {isProfileOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setIsProfileOpen(false)}></div>
+                    <div className="absolute right-0 mt-2 w-44 bg-zinc-900 border-2 border-zinc-700 rounded-xl shadow-2xl overflow-hidden z-50 flex flex-col">
+                      {isAdmin && <Link href="/admin" className="px-4 py-3 border-b border-zinc-800 text-sm font-bold text-zinc-200 hover:bg-zinc-800 transition" onClick={() => setIsProfileOpen(false)}>👑 관리자</Link>}
+                      <Link href="/mypage" className="px-4 py-3 border-b border-zinc-800 text-sm font-bold text-zinc-200 hover:bg-zinc-800 transition" onClick={() => setIsProfileOpen(false)}>👤 마이페이지</Link>
+                      <button onClick={handleLogout} className="px-4 py-3 text-sm font-bold text-red-500 hover:bg-zinc-800 transition text-left">🚪 로그아웃</button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              <Link href="/login" className="px-4 py-1.5 bg-red-700 text-white rounded font-black text-xs hover:bg-red-600 transition shadow-md">로그인</Link>
+            )}
+            
+            {/* 모바일 햄버거 */}
+            <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="md:hidden p-1.5 bg-zinc-800 border border-zinc-700 rounded text-zinc-300">
+              <svg width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path fillRule="evenodd" d="M2.5 12a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5z"/></svg>
+            </button>
+          </div>
+        </div>
 
-              <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2 bg-zinc-800 border border-zinc-700 text-zinc-200 rounded-lg flex items-center justify-center shadow-sm">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path fillRule="evenodd" d="M2.5 12a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5z"/></svg>
+        {/* 📱 모바일 하위 메뉴 (햄버거 클릭 시) */}
+        {isMobileMenuOpen && (
+          <div className="md:hidden flex flex-wrap gap-2 mb-4 p-3 bg-zinc-900 rounded-xl border border-zinc-800">
+            <Link href="/leaderboard" onClick={handleProtectedLink} className="text-xs font-bold text-amber-500 px-3 py-1.5 bg-zinc-950 rounded border border-zinc-800">🏆 랭킹</Link>
+            <Link href="/recommend" onClick={handleProtectedLink} className="text-xs font-bold text-purple-400 px-3 py-1.5 bg-zinc-950 rounded border border-zinc-800">🎯 추천</Link>
+            <Link href="/archives" onClick={handleProtectedLink} className="text-xs font-bold text-orange-400 px-3 py-1.5 bg-zinc-950 rounded border border-zinc-800">📜 보관소</Link>
+            <Link href="/status" onClick={handleProtectedLink} className="text-xs font-bold text-red-400 px-3 py-1.5 bg-zinc-950 rounded border border-zinc-800">📊 현황판</Link>
+            <Link href="/guide" className="text-xs font-bold text-sky-400 px-3 py-1.5 bg-zinc-950 rounded border border-zinc-800 sm:hidden">📖 가이드</Link>
+          </div>
+        )}
+
+        {/* 🧭 [2층] 메인 네비게이션 & 검색/액션 */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-4">
+          
+          {/* 왼쪽: 메인 메뉴들 (현황판 합류) */}
+          <div className="hidden md:flex gap-2 shrink-0">
+            <Link href="/leaderboard" onClick={handleProtectedLink} className="px-4 py-2.5 bg-zinc-900 border border-zinc-800 text-amber-500 hover:border-amber-600 rounded-xl text-sm font-bold shadow-sm transition">🏆 랭킹</Link>
+            <Link href="/recommend" onClick={handleProtectedLink} className="px-4 py-2.5 bg-zinc-900 border border-zinc-800 text-purple-400 hover:border-purple-600 rounded-xl text-sm font-bold shadow-sm transition">🎯 추천</Link>
+            <Link href="/archives" onClick={handleProtectedLink} className="px-4 py-2.5 bg-zinc-900 border border-zinc-800 text-orange-400 hover:border-orange-600 rounded-xl text-sm font-bold shadow-sm transition">📜 보관소</Link>
+            {/* ✨ 네비게이션으로 합류한 현황판 */}
+            <Link href="/status" onClick={handleProtectedLink} className="px-4 py-2.5 bg-zinc-900 border border-zinc-800 text-red-400 hover:border-red-600 rounded-xl text-sm font-bold shadow-sm transition">📊 현황판</Link>
+          </div>
+
+          {/* 오른쪽: 검색바 + 소집 버튼 */}
+          <div className="flex gap-2 w-full md:max-w-xl md:justify-end">
+            <div className="relative w-full">
+              <input 
+                type="text" 
+                placeholder="게임을 검색해보세요..." 
+                className="w-full bg-zinc-900 border-2 border-zinc-700 py-2.5 md:py-3 px-4 rounded-xl focus:border-red-600 outline-none text-sm md:text-base text-zinc-100 placeholder-zinc-500 transition shadow-inner" 
+                value={searchTerm} 
+                onChange={(e) => setSearchTerm(e.target.value)} 
+              />
+            </div>
+            {selectedGameIds.length > 0 && (
+              <button onClick={() => setIsModalOpen(true)} className="px-5 py-2.5 md:py-3 bg-red-700 text-white font-black rounded-xl hover:bg-red-600 transition shadow-lg animate-pulse whitespace-nowrap border-2 border-red-600 shrink-0 text-sm md:text-base">
+                {selectedGameIds.length}개 소집 🩸
               </button>
+            )}
+          </div>
+        </div>
+
+        {/* 🏷️ [3층] 카테고리 & 인원수 필터 */}
+        <div className="flex justify-between items-center gap-2">
+          
+          {/* 장르 탭 */}
+          <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-1 flex-1">
+            {categories.map((cat, idx) => (
+              <button
+                key={idx}
+                onClick={() => setActiveCategory(cat)}
+                className={`px-4 py-2 rounded-xl text-xs md:text-sm font-bold whitespace-nowrap transition border-2 ${activeCategory === cat ? 'bg-zinc-100 border-zinc-100 text-zinc-950' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200'}`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+
+          {/* ✨ 신규: 인원수 드롭다운 필터 */}
+          <div className="shrink-0 relative">
+            <select
+              value={playerCountFilter}
+              onChange={(e) => setPlayerCountFilter(e.target.value)}
+              className="appearance-none bg-zinc-900 border-2 border-zinc-800 text-zinc-200 text-xs md:text-sm font-bold rounded-xl pl-3 md:pl-4 pr-8 py-2 focus:border-red-600 outline-none transition cursor-pointer hover:border-zinc-600"
+            >
+              {playerCounts.map(count => (
+                <option key={count} value={count} className="bg-zinc-900">{count === '전체' ? '👥 인원 (전체)' : count}</option>
+              ))}
+            </select>
+            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-zinc-400">
+              <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
             </div>
           </div>
 
-          {isMobileMenuOpen && (
-            <div className="flex flex-col gap-2 mt-4 pt-4 border-t border-zinc-800">
-              <Link href="/leaderboard" onClick={handleProtectedLink} className="px-4 py-3 bg-zinc-900 border border-zinc-700 text-amber-500 rounded-xl text-sm font-bold">🏆 명예의 전당</Link>
-              <Link href="/recommend" onClick={handleProtectedLink} className="px-4 py-3 bg-zinc-900 border border-zinc-700 text-purple-400 rounded-xl text-sm font-bold">🎯 맞춤 추천</Link>
-              <Link href="/archives" onClick={handleProtectedLink} className="px-4 py-3 bg-zinc-900 border border-zinc-700 text-orange-400 rounded-xl text-sm font-bold">📜 기록 보관소</Link>
-              <Link href="/guide" className="px-4 py-3 bg-zinc-900 border border-zinc-700 text-sky-400 rounded-xl text-sm font-bold">📖 이용 가이드</Link>
-            </div>
-          )}
-        </div>
-
-        {/* 🔍 검색 바 및 소집 버튼 */}
-        <div className="flex gap-4 mb-4 w-full">
-          <input 
-            type="text" 
-            placeholder="게임을 검색해보세요..." 
-            className="w-full bg-zinc-900 border-2 border-zinc-700 p-4 rounded-xl focus:border-red-600 outline-none text-lg text-zinc-100 placeholder-zinc-500 transition shadow-sm" 
-            value={searchTerm} 
-            onChange={(e) => setSearchTerm(e.target.value)} 
-          />
-          {selectedGameIds.length > 0 && (
-            <button onClick={() => setIsModalOpen(true)} className="px-6 md:px-10 py-4 bg-red-700 text-white font-black tracking-wide rounded-xl hover:bg-red-600 transition whitespace-nowrap shadow-lg flex-shrink-0 animate-pulse">
-              {selectedGameIds.length}개 소집 🩸
-            </button>
-          )}
-        </div>
-
-        {/* 🏷️ 카테고리 (장르) 필터 탭 */}
-        <div className="flex gap-2 overflow-x-auto scrollbar-hide">
-          {categories.map((cat, idx) => (
-            <button
-              key={idx}
-              onClick={() => setActiveCategory(cat)}
-              className={`px-5 py-2 rounded-xl text-sm font-bold whitespace-nowrap transition border-2 shadow-sm ${activeCategory === cat ? 'bg-zinc-800 border-red-600 text-white' : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:border-zinc-500'}`}
-            >
-              {cat}
-            </button>
-          ))}
         </div>
       </div>
       {/* ========================================= */}
 
-      {/* 🎲 게임 목록 카드 */}
+      {/* 🎲 게임 목록 카드 (이하 그리드 코드 유지) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 w-full">
         {filteredGames.map(game => {
           const gameRecords = playedGames.filter(pg => pg.game_id === game.id);
@@ -452,7 +445,7 @@ export default function Home() {
         })}
         {filteredGames.length === 0 && (
           <div className="col-span-1 lg:col-span-2 text-center py-24 text-zinc-500 font-bold border-2 border-dashed border-zinc-700 rounded-3xl bg-zinc-900/50">
-            {searchTerm || activeCategory !== '전체' 
+            {searchTerm || activeCategory !== '전체' || playerCountFilter !== '전체'
               ? "해당 조건에 맞는 게임이 아지트에 존재하지 않습니다. 🕵️‍♂️" 
               : "남아있는 게임이 없거나, 모든 게임을 경험하셨습니다. 🎉"}
           </div>
@@ -478,7 +471,7 @@ export default function Home() {
             </div>
             <div className="mb-8">
               <label className="block text-sm font-bold text-zinc-400 mb-2">당신의 역할</label>
-              <select className="w-full bg-zinc-800 border-2 border-zinc-600 p-3.5 rounded-xl focus:border-red-600 text-zinc-100 outline-none font-bold transition" value={selectedRole} onChange={(e) => setSelectedRole(e.target.value)}>
+              <select className="w-full bg-zinc-800 border-2 border-zinc-600 p-3.5 rounded-xl focus:border-red-600 text-zinc-100 outline-none font-bold transition cursor-pointer" value={selectedRole} onChange={(e) => setSelectedRole(e.target.value)}>
                 <option value="player">일반 참가자</option>
                 <option value="gm">게임 운영자 (GM)</option>
               </select>
